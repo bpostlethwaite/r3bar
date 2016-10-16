@@ -4,19 +4,25 @@
 // and very helpful see:
 // http://stackoverflow.com/questions/27927433/position-toolbar-on-reserved-desktop-space-obtained-with-net-wm-strut-and-net
 
+extern crate chrono;
 #[macro_use]
 extern crate conrod;
 extern crate find_folder;
 extern crate piston_window;
-extern crate chrono;
 
+mod sensors;
+mod message;
+
+use chrono::Local;
+use conrod::{FontSize};
+use message::Message;
+use piston_window::{EventLoop, PistonWindow, UpdateEvent, WindowSettings};
+use sensors::systime;
+use std::marker::{Send, Sync};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::sync::mpsc;
-use piston_window::{EventLoop, PistonWindow, UpdateEvent, WindowSettings};
-use chrono::Local;
 use std::time::Duration;
-use conrod::{FontSize};
 
 // Generate a unique const `WidgetId` for each widget.
 widget_ids!{
@@ -30,11 +36,6 @@ widget_ids!{
 const FONT_SIZE: conrod::FontSize = 14;
 const LINE_SPACING: f64 = 2.5;
 const PAD: f64 = 20.0;
-
-enum Message {
-    Time(String),
-    Unlisten,
-}
 
 struct State {
     time: String
@@ -77,29 +78,15 @@ fn main() {
     let dt = Local::now();
     let time_str = dt.format("%Y-%m-%d %H:%M:%S").to_string();
 
+
     let state = Arc::new(Mutex::new(State {time: time_str }));
     let ui_state = state.clone();
     let store = Store { state: state };
 
+    let systime = systime::SysTime{};
+    systime.run(tx.clone());
+
     store.listen(rx);
-
-    {
-        let tx = tx.clone();
-        thread::spawn(move || {
-
-            let iv = Duration::from_millis(100);
-
-            loop {
-                let dt = Local::now();
-                let time_str = dt.format("%Y-%m-%d %H:%M:%S").to_string();
-                let msg = Message::Time(time_str);
-                tx.send(msg).unwrap(); // TODO
-
-
-                thread::sleep(iv);
-            }
-        });
-    }
 
 
     const WIDTH: u32 = 200; // this is overridden to be screen width
