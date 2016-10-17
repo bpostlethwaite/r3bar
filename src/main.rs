@@ -15,14 +15,12 @@ mod sensors;
 mod message;
 mod bar;
 
-use chrono::Local;
 use message::Message;
-use piston_window::{EventLoop, PistonWindow, UpdateEvent, WindowSettings};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use i3ipc::reply::Workspace;
-use conrod::{color, widget, Colorable, Positionable, Scalar, Sizeable, Widget};
+use conrod::{color, widget, Colorable, Positionable, Sizeable, Widget};
 
 // Generate a unique const `WidgetId` for each widget.
 widget_ids!{
@@ -77,17 +75,12 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    // this should be inside a builder constructor
-    let dt = Local::now();
-    let time_str = dt.format("%Y-%m-%d %H:%M:%S").to_string();
-
     let state = Arc::new(Mutex::new(State {
-        time: time_str,
+        time: "".to_string(),
         workspaces: Vec::new()
     }));
 
-    let ui_state = state.clone();
-    let store = Store { state: state };
+    let store = Store { state: state.clone() };
 
     let systime = sensors::systime::SysTime{};
     systime.run(tx.clone());
@@ -109,7 +102,7 @@ fn main() {
             (ids.middle_col, widget::Canvas::new().color(color::DARK_CHARCOAL)),
         ]).set(ids.master, ui_widgets);
 
-        let state = ui_state.lock().unwrap();
+        let state = state.lock().unwrap();
         let time_str = &state.time;
 
         widget::Text::new(time_str)
@@ -121,25 +114,4 @@ fn main() {
             .font_size(FONT_SIZE)
             .set(ids.middle_text, ui_widgets);
     });
-}
-
-fn set_ui(ref mut ui: conrod::UiCell, ids: &Ids, state: Arc<Mutex<State>>) {
-    use conrod::{color, widget, Colorable, Positionable, Scalar, Sizeable, Widget};
-
-    // Our `Canvas` tree, upon which we will place our text widgets.
-    widget::Canvas::new().flow_right(&[
-        (ids.middle_col, widget::Canvas::new().color(color::DARK_CHARCOAL)),
-    ]).set(ids.master, ui);
-
-    let state = state.lock().unwrap();
-    let time_str = &state.time;
-
-    widget::Text::new(time_str)
-        .color(color::LIGHT_GREEN)
-        .padded_w_of(ids.middle_col, PAD)
-        .middle_of(ids.middle_col)
-        .align_text_middle()
-        .line_spacing(LINE_SPACING)
-        .font_size(FONT_SIZE)
-        .set(ids.middle_text, ui);
 }
