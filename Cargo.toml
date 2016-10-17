@@ -4,10 +4,11 @@ version = "0.1.0"
 authors = ["bpostlethwaite <post.ben.here@gmail.com>"]
 
 [dependencies]
+chrono = "0.2"
 conrod = "0.44.0"
 find_folder = "0.3.0"
+i3ipc = "0.4.2"
 piston_window = "0.52"
-chrono = "0.2"
 
 [replace]
 "glutin:0.6.1" = { git = "https://github.com/bpostlethwaite/glutin", branch = "x11-statusbar-patch"}

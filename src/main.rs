@@ -9,20 +9,19 @@ extern crate chrono;
 extern crate conrod;
 extern crate find_folder;
 extern crate piston_window;
+extern crate i3ipc;
 
 mod sensors;
 mod message;
 
 use chrono::Local;
-use conrod::{FontSize};
 use message::Message;
 use piston_window::{EventLoop, PistonWindow, UpdateEvent, WindowSettings};
-use sensors::systime;
-use std::marker::{Send, Sync};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use i3ipc::reply::Workspace;
+
 
 // Generate a unique const `WidgetId` for each widget.
 widget_ids!{
@@ -38,7 +37,8 @@ const LINE_SPACING: f64 = 2.5;
 const PAD: f64 = 20.0;
 
 struct State {
-    time: String
+    time: String,
+    workspaces: Vec<Workspace>,
 }
 
 struct Store {
@@ -50,6 +50,7 @@ impl Store {
         let mut state = self.state.lock().unwrap(); // TODO
         match msg {
             Message::Time(time) => state.time = time,
+            Message::Workspaces(w) => state.workspaces = w.workspaces,
             Message::Unlisten => return,
         };
     }
@@ -70,6 +71,7 @@ impl Store {
     }
 }
 
+
 fn main() {
 
     let (tx, rx) = mpsc::channel();
@@ -79,15 +81,19 @@ fn main() {
     let time_str = dt.format("%Y-%m-%d %H:%M:%S").to_string();
 
 
-    let state = Arc::new(Mutex::new(State {time: time_str }));
+    let state = Arc::new(Mutex::new(State {
+        time: time_str,
+        workspaces: Vec::new()
+    }));
+
     let ui_state = state.clone();
     let store = Store { state: state };
 
-    let systime = systime::SysTime{};
+    let systime = sensors::systime::SysTime{};
     systime.run(tx.clone());
 
-    store.listen(rx);
-
+    let i3workspace = sensors::i3workspace::I3Workspace{};
+    i3workspace.run(tx.clone());
 
     const WIDTH: u32 = 200; // this is overridden to be screen width
     const HEIGHT: u32 = 30;
