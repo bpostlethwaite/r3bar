@@ -24,11 +24,13 @@ use conrod::color;
 enum Message {
     Time(String),
     Workspaces(Vec<Workspace>),
+    I3Mode(String),
     Unlisten,
 }
 
 struct State {
     time: String,
+    i3mode: String,
     workspaces: Vec<(String, color::Color)>,
 }
 
@@ -58,6 +60,7 @@ impl Store {
                 state.workspaces = work_vec;
             },
 
+            Message::I3Mode(mode) => state.i3mode = mode,
             Message::Unlisten => return,
         };
     }
@@ -90,6 +93,7 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     let state = Arc::new(Mutex::new(State {
+        i3mode: "default".to_string(),
         time: "".to_string(),
         workspaces: Vec::new()
     }));
@@ -104,13 +108,13 @@ fn main() {
 
     // set up some sensors to produce data
     let systime = sensors::systime::SysTime{};
-    if let Err(e) = systime.run(tx.clone(), |d| Message::Time(d)) {
+    if let Err(e) = systime.run(tx.clone(), Message::Time) {
         println!("{}", e); // TODO logging
         return;
     }
 
     let i3workspace = sensors::i3workspace::I3Workspace{};
-    if let Err(e) = i3workspace.run(tx.clone(), |w| Message::Workspaces(w)) {
+    if let Err(e) = i3workspace.run(tx.clone(), Message::Workspaces, Message::I3Mode) {
         println!("{}", e); // TODO logging
         return;
     }

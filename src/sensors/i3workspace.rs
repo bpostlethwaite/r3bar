@@ -4,17 +4,19 @@ use i3ipc::Subscription;
 use i3ipc::event::Event;
 use i3ipc::reply::Workspace;
 use std::error::Error;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender};
 use std::{result, thread};
-
 
 pub struct I3Workspace {}
 
 type RunResult = result::Result<(), Box<Error>>;
 
 impl I3Workspace {
-    pub fn run<F, T: 'static + Send>(&self, tx: mpsc::Sender<T>, f: F) -> RunResult
-        where F: 'static + Send + Fn(Vec<Workspace>) -> T {
+    pub fn run<T, F, G>(&self, tx: Sender<T>, f: F, g: G) -> RunResult
+        where F: 'static + Send + Fn(Vec<Workspace>) -> T,
+              T: 'static + Send,
+              G: 'static + Send + Fn(String) -> T
+    {
 
         // send a snapshot of current workspace immediately
         let mut connection = try!(I3Connection::connect());
@@ -25,7 +27,7 @@ impl I3Workspace {
 
             // only ask for all workspaces when we detect a related event
             let mut listener = I3EventListener::connect().unwrap();
-            let subs = [Subscription::Workspace];
+            let subs = [Subscription::Workspace, Subscription::Mode];
             listener.subscribe(&subs).unwrap();
 
             for event in listener.listen() {
@@ -33,6 +35,9 @@ impl I3Workspace {
                     Event::WorkspaceEvent(_) => {
                         let w = connection.get_workspaces().unwrap();
                         tx.send(f(w.workspaces)).unwrap();
+                    }
+                    Event::ModeEvent(e) => {
+                        tx.send(g(e.change)).unwrap();
                     }
                     _ => unreachable!(),
                 }
@@ -52,8 +57,7 @@ impl I3Workspace {
             if !outcome.success {
                 match outcome.error {
                     Some(e) => return Err(From::from(e)),
-                    None => return Err(
-                        From::from("Couldn't switch workspace unknown reason")),
+                    None => return Err(From::from("Couldn't switch workspace unknown reason")),
                 }
             }
         }
