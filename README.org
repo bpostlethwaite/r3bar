@@ -1,0 +1,4 @@
+* RUBAR
+** TODO Clean up Glutin hack
+** TODO Ensure Rubar works with OpenBox
+** TODO Use as default bar

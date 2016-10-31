@@ -11,35 +11,53 @@ extern crate piston_window;
 extern crate i3ipc;
 
 mod sensors;
-mod message;
 mod bar;
+mod gauges;
 
-use message::Message;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use i3ipc::reply::Workspace;
-use conrod::{color, widget, Colorable, Positionable, Sizeable, Widget};
+use i3ipc::reply::{Workspace};
 
-const FONT_SIZE: conrod::FontSize = 14;
-const LINE_SPACING: f64 = 2.5;
-const PAD: f64 = 20.0;
+use conrod::color;
+
+enum Message {
+    Time(String),
+    Workspaces(Vec<Workspace>),
+    Unlisten,
+}
 
 struct State {
     time: String,
-    workspaces: Vec<Workspace>,
+    workspaces: Vec<(String, color::Color)>,
 }
 
 struct Store {
     state: Arc<Mutex<State>>,
 }
 
+
 impl Store {
     fn update(&self, msg: Message) {
-        let mut state = self.state.lock().unwrap(); // TODO
+
+        // unwrap is intentional. If a thread panics we want bring the system down.
+        let mut state = self.state.lock().unwrap();
         match msg {
             Message::Time(time) => state.time = time,
-            Message::Workspaces(w) => state.workspaces = w.workspaces,
+
+            Message::Workspaces(workspaces) => {
+                let mut work_vec = Vec::new();
+                for workspace in workspaces {
+                    if workspace.focused {
+                        work_vec.push((workspace.name.clone(), color::LIGHT_GREEN));
+                    } else {
+                        work_vec.push((workspace.name.clone(), color::GRAY));
+                    }
+                }
+
+                state.workspaces = work_vec;
+            },
+
             Message::Unlisten => return,
         };
     }
@@ -47,7 +65,13 @@ impl Store {
     fn listen(self, rx: mpsc::Receiver<Message>) -> thread::JoinHandle<()> {
         let listener = thread::spawn(move || {
             loop {
-                let msg = rx.recv().unwrap(); // TODO
+
+                // channels will throw an error when the other ends disconnect.
+                let msg = match rx.recv() {
+                    Err(_) => break, // LOGGING error/disconnect?
+                    Ok(msg) => msg,
+                };
+
                 if let Message::Unlisten = msg {
                     break;
                 }
@@ -74,50 +98,45 @@ fn main() {
     let store = Store { state: state.clone() };
     store.listen(rx);
 
-    // set up some sensors to produce data
-    let systime = sensors::systime::SysTime{};
-    systime.run(tx.clone());
-
-    let i3workspace = sensors::i3workspace::I3Workspace{};
-    i3workspace.run(tx.clone());
-
     // instantiate a our system bar
     let mut rubar = bar::Bar::new();
 
-    // While rubar provides an ID for each space on the bar we need extra
-    // Ids to compose the actual widget structures themselves.
-    let workspace_text = rubar.new_id();
-    let middle_text = rubar.new_id();
 
-    rubar.bind_widget(move |state: &MutexGuard<State>, spacer_id, mut ui_widgets| {
-        let time_str = &state.time;
-        widget::Text::new(time_str)
-            .color(color::LIGHT_GREEN)
-            .padded_w_of(spacer_id, PAD)
-            .middle_of(spacer_id)
-            .align_text_middle()
-            .line_spacing(LINE_SPACING)
-            .font_size(FONT_SIZE)
-            .set(middle_text, &mut ui_widgets);
+    // set up some sensors to produce data
+    let systime = sensors::systime::SysTime{};
+    if let Err(e) = systime.run(tx.clone(), |d| Message::Time(d)) {
+        println!("{}", e); // TODO logging
+        return;
+    }
 
-    }).bind_widget(move |state: &MutexGuard<State>, spacer_id, mut ui_widgets| {
-        let ref workspaces = state.workspaces;
-        let mut active_workspace = "".to_string();
-        for i in 0..workspaces.len() {
-            let ref workspace = workspaces[i];
-            if workspace.focused {
-                active_workspace = workspace.num.to_string();
+    let i3workspace = sensors::i3workspace::I3Workspace{};
+    if let Err(e) = i3workspace.run(tx.clone(), |w| Message::Workspaces(w)) {
+        println!("{}", e); // TODO logging
+        return;
+    }
+
+
+    // set up some widgets
+    let time_widget = gauges::simple_text::Simple::new(
+        rubar.ui.widget_id_generator());
+
+    let workspace_widget = gauges::button_row::ButtonRow::new(
+        rubar.ui.widget_id_generator());
+
+    // bind widgets to our store state and finally call animate_frame to
+    // start the draw render loop.
+    rubar.bind_widget(move |state: &MutexGuard<State>, bar_id, mut ui_widgets| {
+        time_widget.render(&state.time, bar_id, ui_widgets);
+
+
+    }).bind_widget(move |state: &MutexGuard<State>, bar_id, mut ui_widgets| {
+        if let Some(button_number) = workspace_widget
+            .render(state.workspaces.clone(), bar_id, ui_widgets) {
+
+                if let Err(e) = i3workspace.change_workspace(button_number + 1) {
+                    println!("{:?}", e); // logging
+                }
             }
-        }
-
-        widget::Text::new(&active_workspace)
-            .color(color::LIGHT_GREEN)
-            .padded_w_of(spacer_id, PAD)
-            .middle_of(spacer_id)
-            .align_text_middle()
-            .line_spacing(LINE_SPACING)
-            .font_size(FONT_SIZE)
-            .set(workspace_text, &mut ui_widgets);
 
     }).animate_frame(state);
 }

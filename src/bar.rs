@@ -11,7 +11,7 @@ const HEIGHT: u32 = 30;
 
 pub struct Bar<T> {
     pub window: PistonWindow,
-    ui: conrod::Ui,
+    pub ui: conrod::Ui,
     binders: Vec<Box<Fn(&MutexGuard<T>, conrod::widget::Id, &mut conrod::UiCell,)>>,
     ids: Vec<conrod::widget::Id>,
 }
@@ -120,14 +120,9 @@ impl <T: 'static>Bar<T> {
         self.binders.push(Box::new(binder));
 
         // add a new id for each new primary widget
-        let id = self.new_id();
+        let id = self.ui.widget_id_generator().next();
         self.ids.push(id);
 
         return self;
-    }
-
-    pub fn new_id(&mut self) -> conrod::widget::Id {
-        let mut generator = self.ui.widget_id_generator();
-        generator.next()
     }
 }

@@ -2,35 +2,62 @@ use i3ipc::I3Connection;
 use i3ipc::I3EventListener;
 use i3ipc::Subscription;
 use i3ipc::event::Event;
+use i3ipc::reply::Workspace;
+use std::error::Error;
 use std::sync::mpsc;
-use std::thread;
+use std::{result, thread};
 
-use message::Message;
 
 pub struct I3Workspace {}
 
-impl I3Workspace {
-    pub fn run(&self, tx: mpsc::Sender<Message>) {
-        thread::spawn(move || {
-            // establish connection.
-            let mut listener = I3EventListener::connect().unwrap();
+type RunResult = result::Result<(), Box<Error>>;
 
-            // subscribe to a couple events.
+impl I3Workspace {
+    pub fn run<F, T: 'static + Send>(&self, tx: mpsc::Sender<T>, f: F) -> RunResult
+        where F: 'static + Send + Fn(Vec<Workspace>) -> T {
+
+        // send a snapshot of current workspace immediately
+        let mut connection = try!(I3Connection::connect());
+        let w = try!(connection.get_workspaces());
+        try!(tx.send(f(w.workspaces)).map_err(|e| e.to_string()));
+
+        thread::spawn(move || {
+
+            // only ask for all workspaces when we detect a related event
+            let mut listener = I3EventListener::connect().unwrap();
             let subs = [Subscription::Workspace];
             listener.subscribe(&subs).unwrap();
 
-            let mut connection = I3Connection::connect().unwrap();
-
-            // handle them
             for event in listener.listen() {
                 match event.unwrap() {
                     Event::WorkspaceEvent(_) => {
-                        let workspaces = connection.get_workspaces().unwrap();
-                        tx.send(Message::Workspaces(workspaces)).unwrap();
+                        let w = connection.get_workspaces().unwrap();
+                        tx.send(f(w.workspaces)).unwrap();
                     }
                     _ => unreachable!(),
                 }
             }
         });
+
+        Ok(())
+    }
+
+    pub fn change_workspace(&self, workspace_number: i64) -> RunResult {
+        let cmd = format!("workspace {}", workspace_number);
+
+        let mut connection = try!(I3Connection::connect());
+        let outcomes = connection.command(&cmd).ok().expect("failed to send command").outcomes;
+
+        for outcome in outcomes {
+            if !outcome.success {
+                match outcome.error {
+                    Some(e) => return Err(From::from(e)),
+                    None => return Err(
+                        From::from("Couldn't switch workspace unknown reason")),
+                }
+            }
+        }
+
+        Ok(())
     }
 }
