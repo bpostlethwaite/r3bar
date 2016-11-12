@@ -114,7 +114,9 @@ fn main() {
     }
 
     let i3workspace = sensors::i3workspace::I3Workspace{};
-    if let Err(e) = i3workspace.run(tx.clone(), Message::Workspaces, Message::I3Mode) {
+    if let Err(e) = i3workspace.run(
+        tx.clone(), Message::Workspaces, Message::I3Mode
+    ) {
         println!("{}", e); // TODO logging
         return;
     }
@@ -124,23 +126,36 @@ fn main() {
     let time_widget = gauges::simple_text::Simple::new(
         rubar.ui.widget_id_generator());
 
+    let time_widget2 = gauges::simple_text::Simple::new(
+        rubar.ui.widget_id_generator());
+
+
     let workspace_widget = gauges::button_row::ButtonRow::new(
         rubar.ui.widget_id_generator());
 
     // bind widgets to our store state and finally call animate_frame to
     // start the draw render loop.
-    rubar.bind_widget(move |state: &MutexGuard<State>, bar_id, mut ui_widgets| {
-        time_widget.render(&state.time, bar_id, ui_widgets);
+    rubar
+        .bind_right(
+        move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
+            time_widget.render(&state.time, slot_id, ui_widgets);
 
-    }).bind_widget(move |state: &MutexGuard<State>, bar_id, mut ui_widgets| {
-        if let Some(button_number) = workspace_widget
-            .render(state.workspaces.clone(), bar_id, ui_widgets) {
+        }).bind_right(
+        move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-                if let Err(e) = i3workspace.change_workspace(button_number + 1) {
-                    println!("{:?}", e); // logging
+            time_widget2.render(&state.time, slot_id, ui_widgets);
+
+        }).bind_left(
+        move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+
+            if let Some(button_number) = workspace_widget
+                .render(state.workspaces.clone(), slot_id, ui_widgets) {
+
+                    if let Err(e) = i3workspace.change_workspace(button_number + 1) {
+                        println!("{:?}", e); // logging
+                    }
                 }
-            }
 
-    }).animate_frame(state);
+        }).animate_frame(state);
 }

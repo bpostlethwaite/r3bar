@@ -1,4 +1,4 @@
-use conrod::{self, color, widget, Colorable, Positionable, Sizeable, Widget};
+use conrod::{self, color, widget, Colorable, Place, Positionable, Sizeable, Widget};
 
 // TODO these should be configurable
 const FONT_SIZE: conrod::FontSize = 14;
@@ -19,9 +19,7 @@ impl Simple {
     pub fn render(&self, text: &str, bar_id: conrod::widget::Id, mut ui_widgets: &mut conrod::UiCell) {
         widget::Text::new(text)
             .color(color::LIGHT_GREEN)
-            .padded_w_of(bar_id, PAD)
-            .middle_of(bar_id)
-            .align_text_middle()
+            .x_place_on(bar_id, Place::End(Some(10.0)))
             .line_spacing(LINE_SPACING)
             .font_size(FONT_SIZE)
             .set(self.text_id, &mut ui_widgets);
