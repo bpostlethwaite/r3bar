@@ -1,6 +1,6 @@
 use conrod::backend::piston_window::GlyphCache;
-use conrod::{self, color, widget, Colorable, Positionable, Widget, UiCell};
-use conrod::widget::{Id, Canvas};
+use conrod::{self, color, widget, Colorable, Place, Positionable, Widget, UiCell};
+use conrod::widget::{Id, Canvas, Rectangle};
 use find_folder;
 use piston_window::{self, EventLoop, PistonWindow, Size, UpdateEvent, Window, WindowSettings};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -8,24 +8,55 @@ use std::sync::{Arc, Mutex, MutexGuard};
 // TODO Height should be detected by font height
 const WIDTH: u32 = 200; // this is overridden to be screen width
 const HEIGHT: u32 = 30;
-
-const MAX_GAUGES: u32 = 9;
 const GAUGE_WIDTH: u32 = 200;
 
-struct Binder<T> {
-    binder: Box<Fn(&MutexGuard<T>, Id, &mut UiCell)>,
+struct Gauge<T> {
+    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell)>,
     width: u32,
     id: Id,
+}
+
+struct Spacer {
+    width: u32,
+    id: Id,
+}
+
+enum Elem<T> {
+    Spacer(Spacer),
+    Gauge(Gauge<T>),
+}
+
+type Elems<T> = Vec<Elem<T>>;
+
+trait ElemList {
+    fn width(&self) -> u32;
+}
+
+impl <T>ElemList for Elems<T> {
+    fn width(&self) -> u32 {
+        let mut total_width = 0;
+
+        for elem in self.iter() {
+            let width = match elem {
+                &Elem::Gauge(Gauge { width, .. }) => width,
+                &Elem::Spacer(Spacer { width, .. }) => width,
+            };
+
+            total_width = total_width + width;
+        }
+        total_width
+    }
 }
 
 pub struct Bar<T> {
     pub window: PistonWindow,
     pub ui: conrod::Ui,
-    lefts: Vec<Binder<T>>,
-    rights: Vec<Binder<T>>,
+    lefts: Elems<T>,
+    rights: Elems<T>,
 }
 
-// [{binder: binder, width: width}, {binder: binder, width: width}]
+// NOTE INSTEAD OF OPTION binder field use an ENUM in the lefts and rights
+// vecs. could be type GAUGE, SPACER and maybe SEPERATOR
 
 
 impl<T: 'static> Bar<T> {
@@ -46,7 +77,9 @@ impl<T: 'static> Bar<T> {
         let mut ui = conrod::UiBuilder::new().build();
 
         // Add a `Font` to the `Ui`'s `font::Map` from file.
-        let assets = find_folder::Search::KidsThenParents(3, 5).for_folder("assets").unwrap();
+        // TODO make configurable and remove unwraps()
+        let assets = find_folder::Search::KidsThenParents(3, 5)
+            .for_folder("assets").unwrap();
         let font_path = assets.join("fonts/Roboto Mono for Powerline.ttf");
         ui.fonts.insert_from_file(font_path).unwrap();
 
@@ -64,31 +97,33 @@ impl<T: 'static> Bar<T> {
         // (in our case, none).
         let image_map = conrod::image::Map::new();
 
-        // The maximum number of gauges bar supports
-        let mut sections: [u32; MAX_GAUGES as usize] = [0; MAX_GAUGES as usize];
+        // Write the requested widths into a section array. These widths
+        // will be configurable but for now set to a default.
+        let master_id;
+        let gap_id;
+        let left_edge_id;
+        {
+            let mut generator = self.ui.widget_id_generator();
+
+            master_id = generator.next();
+            gap_id = generator.next();
+            left_edge_id = generator.next();
+        }
 
         let ref mut window = self.window;
         let mut ui = self.ui;
-        let lefts = self.lefts;
-        let rights = self.rights;
+        let mut elems: Elems<T> = self.lefts;
 
-        // let segments = self.lefts;
-        // segments.extend(rights);
+        // insert an unbound padding entry between rights and lefts
+        elems.push(Elem::Spacer(
+            Spacer{
+                width: 0, // this will be adjusted in the rendering phase
+                id: gap_id,
+            }
+        ));
 
-        // Write the requested widths into a section array. These widths
-        // will be configurable but for now set to a default.
-        let n_gauges = (lefts.len() + rights.len()) as u32;
-
-        let master_id;
-        let left_id;
-        let right_id;
-        {
-            let mut generator = ui.widget_id_generator();
-
-            master_id = generator.next();
-            left_id = generator.next();
-            right_id = generator.next();
-        }
+        // concat the right binders
+        elems.extend(self.rights);
 
         let mut text_texture_cache = GlyphCache::new(window, WIDTH, HEIGHT);
 
@@ -105,53 +140,73 @@ impl<T: 'static> Bar<T> {
 
                 // Set up a series of rectangles that respect requested
                 // user widths and screen dimensions.
-                let width = match window.size() {
+                let win_width = match window.size() {
                     Size {width, .. } => width
                 };
 
-                // We only care about sections that the user is going to bind
-                // so tally those (they will eventually support unique sizing
-                // but for now it is just the default).
-                let req_width = GAUGE_WIDTH * n_gauges;
-
                 // If the user has requested more than the window size we modify
                 // their requested lengths until fit. <not implemented>
-                if req_width > width {
+                let req_width = elems.width();
+                if req_width > win_width {
                     panic!("requested gauge widths greater than bar width")
+                }
+
+                // Next increase the spacer width to take up remaining space
+                // if we have additional room to fill.
+                let rem_width = 400; //win_width - req_width;
+                if rem_width > 0 {
+                    for elem in &mut elems {
+                        if let &mut Elem::Spacer(ref mut spacer) = elem {
+                            spacer.width = rem_width;
+                            break;
+                        }
+                    }
                 }
 
                 let mut ui = &mut ui.set_widgets();
 
-                let left_canvas = Canvas::new().color(color::DARK_CHARCOAL);
-                let right_canvas = Canvas::new().color(color::DARK_CHARCOAL);
+                // main background canvas
+                let c = Canvas::new()
+                let p = c.get_x_position(ui);
+                c.set(master_id, &mut ui);
+                println!("x pos = {:?}", p);
+                Rectangle::fill_with(
+                    [0.0, HEIGHT as f64], color::TRANSPARENT
+                ).parent(master_id).x_place_on(master_id, Place::Start(None)).set(left_edge_id, ui);
 
-                let mut left_splits = Vec::new();
-                for &Binder {id, ..} in lefts.iter() {
-                    left_splits.push((id, Canvas::new().color(color::DARK_CHARCOAL)));
+                // The first elem needs to be placed in on the far right x axis
+                // of the master canvas. Subsequent widgets can be positioned
+                // relative the previously set widget.
+                let mut elem_iter = elems.iter();
+                let mut x_pos = 0;
+
+                for elem in elem_iter {
+                    let (width, id, spacer) = match elem {
+                        &Elem::Gauge(Gauge { width, id, .. }) => (width, id, false),
+                        &Elem::Spacer(Spacer { width, id }) => (width, id, true),
+                    };
+
+                    if spacer {
+                        Rectangle::fill_with(
+                            [width as f64, HEIGHT as f64], color::TRANSPARENT
+                        ).parent(master_id).x_relative_to(left_edge_id, x_pos as f64).set(id, ui);
+                    } else {
+                        Rectangle::fill_with(
+                            [width as f64, HEIGHT as f64], color::DARK_CHARCOAL
+                        ).parent(master_id).x_relative_to(left_edge_id, x_pos as f64).set(id, ui);
+                    }
+                    println!("is_spacer {}, width = {}, x_pos = {}", spacer, width, x_pos);
+                    x_pos += width;
                 }
-
-                let mut right_splits = Vec::new();
-                for &Binder {id, ..} in rights.iter() {
-                    right_splits.push((id, Canvas::new().color(color::DARK_CHARCOAL)));
-                }
-
-                let left_canvas = left_canvas.flow_right(&left_splits);
-                let right_canvas = right_canvas.flow_left(&right_splits);
-
-                Canvas::new()
-                    .flow_right(&[(left_id, left_canvas), (right_id, right_canvas)])
-                    .set(master_id, &mut ui);
-
 
                 // Unlock state so all binder functions may mutate.
                 let state = locked.lock().unwrap(); // TODO
 
-                for &Binder {id, ref binder, .. } in lefts.iter() {
-                    binder(&state, id, &mut ui);
-                }
-
-                for &Binder {id, ref binder, .. } in rights.iter() {
-                    binder(&state, id, &mut ui);
+                // call the bind functions on each Gauge
+                for elem in elems.iter() {
+                    if let &Elem::Gauge(Gauge { id, ref bind, .. }) = elem {
+                        bind(&state, id, &mut ui);
+                    }
                 }
             });
 
@@ -174,6 +229,26 @@ impl<T: 'static> Bar<T> {
         }
     }
 
+    fn total_width(&self) -> u32 {
+        let mut total_width = 0;
+        for elem in self.rights.iter() {
+            let width = match elem {
+                &Elem::Gauge(Gauge { width, .. }) => width,
+                &Elem::Spacer(Spacer { width, .. }) => width,
+            };
+            total_width = total_width + width;
+        }
+        for elem in self.lefts.iter() {
+            let width = match elem {
+                &Elem::Gauge(Gauge { width, .. }) => width,
+                &Elem::Spacer(Spacer { width, .. }) => width,
+            };
+
+            total_width = total_width + width;
+        }
+        total_width
+    }
+
     fn gen_id(&mut self) -> Id {
 
         let mut generator = &mut self.ui.widget_id_generator();
@@ -182,32 +257,36 @@ impl<T: 'static> Bar<T> {
 
     }
 
-    pub fn bind_left<F>(mut self, binder: F) -> Bar<T>
+    pub fn bind_left<F>(mut self, bind: F) -> Bar<T>
         where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
     {
 
         let id = self.gen_id();
 
-        self.lefts.push(Binder{
-            binder: Box::new(binder),
-            width: GAUGE_WIDTH,
-            id: id,
-        });
+        self.lefts.push(Elem::Gauge(
+            Gauge{
+                bind: Box::new(bind),
+                width: GAUGE_WIDTH,
+                id: id,
+            }
+        ));
 
         self
     }
 
-    pub fn bind_right<F>(mut self, binder: F) -> Bar<T>
+    pub fn bind_right<F>(mut self, bind: F) -> Bar<T>
         where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
     {
         let id = self.gen_id();
 
-        self.rights.insert(0, Binder{
-            binder: Box::new(binder),
-            width: GAUGE_WIDTH,
-            id: id,
-        });
+        self.rights.insert(0, Elem::Gauge(
+            Gauge{
+                bind: Box::new(bind),
+                width: GAUGE_WIDTH,
+                id: id,
+            }
+        ));
 
-        return self;
+        self
     }
 }
