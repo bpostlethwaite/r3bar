@@ -101,13 +101,11 @@ impl<T: 'static> Bar<T> {
         // will be configurable but for now set to a default.
         let master_id;
         let gap_id;
-        let left_edge_id;
         {
             let mut generator = self.ui.widget_id_generator();
 
             master_id = generator.next();
             gap_id = generator.next();
-            left_edge_id = generator.next();
         }
 
         let ref mut window = self.window;
@@ -153,7 +151,7 @@ impl<T: 'static> Bar<T> {
 
                 // Next increase the spacer width to take up remaining space
                 // if we have additional room to fill.
-                let rem_width = 400; //win_width - req_width;
+                let rem_width = win_width - req_width;
                 if rem_width > 0 {
                     for elem in &mut elems {
                         if let &mut Elem::Spacer(ref mut spacer) = elem {
@@ -163,41 +161,21 @@ impl<T: 'static> Bar<T> {
                     }
                 }
 
+                let mut splits = Vec::with_capacity(elems.len());
+                for elem in elems.iter() {
+                    let (width, id) = match elem {
+                        &Elem::Gauge(Gauge { width, id, .. }) => (width, id),
+                        &Elem::Spacer(Spacer { width, id }) => (width, id),
+                    };
+
+                    splits.push((id, Canvas::new().length(width as f64).color(color::DARK_CHARCOAL)));
+                }
+
                 let mut ui = &mut ui.set_widgets();
 
                 // main background canvas
-                let c = Canvas::new()
-                let p = c.get_x_position(ui);
-                c.set(master_id, &mut ui);
-                println!("x pos = {:?}", p);
-                Rectangle::fill_with(
-                    [0.0, HEIGHT as f64], color::TRANSPARENT
-                ).parent(master_id).x_place_on(master_id, Place::Start(None)).set(left_edge_id, ui);
+                Canvas::new().flow_right(&splits).set(master_id, &mut ui);
 
-                // The first elem needs to be placed in on the far right x axis
-                // of the master canvas. Subsequent widgets can be positioned
-                // relative the previously set widget.
-                let mut elem_iter = elems.iter();
-                let mut x_pos = 0;
-
-                for elem in elem_iter {
-                    let (width, id, spacer) = match elem {
-                        &Elem::Gauge(Gauge { width, id, .. }) => (width, id, false),
-                        &Elem::Spacer(Spacer { width, id }) => (width, id, true),
-                    };
-
-                    if spacer {
-                        Rectangle::fill_with(
-                            [width as f64, HEIGHT as f64], color::TRANSPARENT
-                        ).parent(master_id).x_relative_to(left_edge_id, x_pos as f64).set(id, ui);
-                    } else {
-                        Rectangle::fill_with(
-                            [width as f64, HEIGHT as f64], color::DARK_CHARCOAL
-                        ).parent(master_id).x_relative_to(left_edge_id, x_pos as f64).set(id, ui);
-                    }
-                    println!("is_spacer {}, width = {}, x_pos = {}", spacer, width, x_pos);
-                    x_pos += width;
-                }
 
                 // Unlock state so all binder functions may mutate.
                 let state = locked.lock().unwrap(); // TODO
