@@ -34,6 +34,7 @@ const BASE0: Color = Color::Rgba(0.513725, 0.580392, 0.588235, 1.);
 const BASE1: Color = Color::Rgba(0.576470, 0.631372, 0.631372, 1.);
 const CYAN: Color = Color::Rgba(0.164705, 0.631372, 0.596078, 1.);
 const ORANGE: Color = Color::Rgba(0.796078, 0.294117, 0.086274, 1.);
+const MAGENTA: Color = Color::Rgba(0.827450, 0.211764, 0.509803, 1.);
 
 const HEIGHT: u32 = 26;
 
@@ -50,11 +51,15 @@ struct Battery {
     status: String,
 }
 
+struct I3 {
+    mode: String,
+    workspaces: Vec<(String, color::Color)>,
+}
+
 struct State {
     battery: Battery,
     time: String,
-    i3mode: String,
-    workspaces: Vec<(String, color::Color)>,
+    i3: I3,
 }
 
 struct Store {
@@ -85,10 +90,16 @@ impl Store {
                     }
                 }
 
-                state.workspaces = work_vec;
+                state.i3.workspaces = work_vec;
             },
 
-            Message::I3Mode(mode) => state.i3mode = mode,
+            Message::I3Mode(mode) => {
+                if mode == "default" {
+                    state.i3.mode = "".to_string();
+                } else {
+                    state.i3.mode = mode;
+                }
+            },
             Message::Unlisten => return,
         };
     }
@@ -120,13 +131,15 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     let state = Arc::new(Mutex::new(State {
-        i3mode: "default".to_string(),
         time: "".to_string(),
-        workspaces: Vec::new(),
         battery: Battery{
             capacity: "".to_string(),
             status: "".to_string(),
-        }
+        },
+        i3: I3{
+            mode: "".to_string(),
+            workspaces: Vec::new(),
+        },
     }));
 
     // set up our store and start listening
@@ -151,6 +164,7 @@ fn main() {
     rubar.ui.theme.label_color = BASE0;
     rubar.ui.theme.padding = Padding::none();
     rubar.ui.theme.border_color = BASE02;
+    rubar.ui.theme.font_size_medium = 14;
 
     // set up some sensors to produce data
     let systime = sensors::systime::SysTime{
@@ -186,14 +200,14 @@ fn main() {
         rubar.ui.widget_id_generator());
 
     let workspace_widget = gauges::button_row::ButtonRow::new(
-        30, BASE03, rubar.ui.widget_id_generator()
+        30, BASE03, MAGENTA, rubar.ui.widget_id_generator()
     );
 
     // bind widgets to our store state and finally call animate_frame to
     // start the draw render loop.
     rubar
         .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH,
+            bar::DEFAULT_GAUGE_WIDTH + 10,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
                 time_widget.render(&state.time, slot_id, ui_widgets);
@@ -216,7 +230,11 @@ fn main() {
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
                 if let Some(button_number) = workspace_widget
-                    .render(state.workspaces.clone(), slot_id, ui_widgets) {
+                    .render(
+                        state.i3.workspaces.clone(),
+                        &state.i3.mode,
+                        slot_id,
+                        ui_widgets) {
 
                         if let Err(e) = i3workspace.change_workspace(button_number + 1) {
                             println!("{:?}", e); // logging

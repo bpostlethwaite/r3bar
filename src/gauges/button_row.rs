@@ -1,26 +1,40 @@
-use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget, Place};
+use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget,
+             Place};
 use std::cmp;
 
 
 pub struct ButtonRow {
     ids: Vec<conrod::widget::Id>,
+    label_id: conrod::widget::Id,
     height: u32,
-    font_color: Color
+    label_color: Color,
+    button_label_color: Color,
 }
 
 impl ButtonRow {
-    pub fn new(height: u32, color: Color, mut id_generator: conrod::widget::id::Generator) -> ButtonRow {
+    pub fn new(height: u32,
+               button_label_color: Color,
+               label_color: Color,
+               mut id_generator: conrod::widget::id::Generator)
+               -> ButtonRow {
         let mut ids = Vec::new();
 
         for _ in 0..9 {
             ids.push(id_generator.next());
         }
 
-        ButtonRow { ids: ids, height: height, font_color: color }
+        ButtonRow {
+            ids: ids,
+            height: height,
+            button_label_color: button_label_color,
+            label_color: label_color,
+            label_id: id_generator.next(),
+        }
     }
 
     pub fn render(&self,
                   buttons: Vec<(String, color::Color)>,
+                  label: &str,
                   bar_id: conrod::widget::Id,
                   mut ui_widgets: &mut conrod::UiCell)
                   -> Option<i64> {
@@ -28,7 +42,7 @@ impl ButtonRow {
         let basic_btn = || {
             widget::Button::new()
                 .parent(bar_id)
-                .label_color(self.font_color)
+                .label_color(self.button_label_color)
                 .w(self.height as f64)
                 .h(self.height as f64)
                 .align_label_middle()
@@ -48,7 +62,6 @@ impl ButtonRow {
             if btn.x_place_on(bar_id, Place::Start(None))
                 .color(color)
                 .label(&title)
-                .small_font(ui_widgets)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
                 clicked_button = Some(i as i64);
@@ -61,12 +74,16 @@ impl ButtonRow {
             if btn.x_relative(self.height as f64)
                 .color(color)
                 .label(&title)
-                .small_font(ui_widgets)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
                 clicked_button = Some(i as i64);
             }
         }
+
+        widget::Text::new(label)
+            .x_place_on(bar_id, Place::End(Some(10.)))
+            .color(self.label_color)
+            .set(self.label_id, &mut ui_widgets);
 
         clicked_button
     }
