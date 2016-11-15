@@ -1,42 +1,36 @@
-use conrod::{self, color, widget, Colorable, Positionable,
-             Sizeable, Labelable, Widget, Place};
+use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget, Place};
 use std::cmp;
-
-// TODO these should be configurable
-const FONT_SIZE: conrod::FontSize = 14;
-const LINE_SPACING: f64 = 2.5;
-const PAD: f64 = 20.0;
-
-// TODO Height should be detected by font height
-const BUTTON_WIDTH: f64 = 40.;
-const HEIGHT: u32 = 30; // needs to come in via rubar
 
 
 pub struct ButtonRow {
-    ids: Vec<conrod::widget::Id>
+    ids: Vec<conrod::widget::Id>,
+    height: u32,
+    font_color: Color
 }
 
 impl ButtonRow {
-
-    pub fn new(mut id_generator: conrod::widget::id::Generator) -> ButtonRow {
+    pub fn new(height: u32, color: Color, mut id_generator: conrod::widget::id::Generator) -> ButtonRow {
         let mut ids = Vec::new();
 
         for _ in 0..9 {
             ids.push(id_generator.next());
         }
 
-        ButtonRow{
-            ids: ids,
-        }
+        ButtonRow { ids: ids, height: height, font_color: color }
     }
 
-    pub fn render(&self, buttons: Vec<(String, color::Color)>, bar_id: conrod::widget::Id, mut ui_widgets: &mut conrod::UiCell) -> Option<i64> {
+    pub fn render(&self,
+                  buttons: Vec<(String, color::Color)>,
+                  bar_id: conrod::widget::Id,
+                  mut ui_widgets: &mut conrod::UiCell)
+                  -> Option<i64> {
 
         let basic_btn = || {
             widget::Button::new()
                 .parent(bar_id)
-                .w(BUTTON_WIDTH)
-                .h(HEIGHT as f64)
+                .label_color(self.font_color)
+                .w(self.height as f64)
+                .h(self.height as f64)
                 .align_label_middle()
         };
 
@@ -54,22 +48,24 @@ impl ButtonRow {
             if btn.x_place_on(bar_id, Place::Start(None))
                 .color(color)
                 .label(&title)
+                .small_font(ui_widgets)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
-                    clicked_button = Some(i as i64);
-                }
+                clicked_button = Some(i as i64);
+            }
         }
 
         // and then line subsequent buttons up relative to first button
         for ((i, &button_id), (title, color)) in ids_titles {
             let btn = basic_btn();
-            if btn.x_relative(BUTTON_WIDTH)
+            if btn.x_relative(self.height as f64)
                 .color(color)
                 .label(&title)
+                .small_font(ui_widgets)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
-                    clicked_button = Some(i as i64);
-                }
+                clicked_button = Some(i as i64);
+            }
         }
 
         clicked_button

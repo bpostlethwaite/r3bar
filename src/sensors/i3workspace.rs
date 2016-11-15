@@ -5,11 +5,11 @@ use i3ipc::event::Event;
 use i3ipc::reply::Workspace;
 use std::error::Error;
 use std::sync::mpsc::{self, Sender};
-use std::{result, thread};
+use std::{thread};
 
 pub struct I3Workspace {}
 
-type RunResult = result::Result<(), Box<Error>>;
+type RunResult = Result<(), Box<Error>>;
 
 impl I3Workspace {
     pub fn run<T, F, G>(&self, tx: Sender<T>, f: F, g: G) -> RunResult

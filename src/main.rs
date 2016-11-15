@@ -6,29 +6,52 @@
 
 extern crate chrono;
 extern crate conrod;
-extern crate find_folder;
 extern crate piston_window;
 extern crate i3ipc;
 
 mod sensors;
 mod bar;
 mod gauges;
+mod error;
 
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::thread;
+use error::BarError;
 use i3ipc::reply::{Workspace};
+use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::time::Duration;
+use std::{env, thread};
 
-use conrod::color;
+use conrod::color::{Color, self};
+use conrod::Padding;
+
+static FONT_PATH: &'static str = "programming/rubar/assets/fonts/Roboto Mono for Powerline.ttf";
+
+const BASE03: Color = Color::Rgba(0., 0.168627, 0.211764, 1.);
+const BASE02: Color = Color::Rgba(0.027450, 0.211764, 0.258823, 1.);
+const BASE01: Color = Color::Rgba(0.345098, 0.431372, 0.458823, 1.);
+const BASE00: Color = Color::Rgba(0.396078, 0.482352, 0.513725, 1.);
+const BASE0: Color = Color::Rgba(0.513725, 0.580392, 0.588235, 1.);
+const BASE1: Color = Color::Rgba(0.576470, 0.631372, 0.631372, 1.);
+const CYAN: Color = Color::Rgba(0.164705, 0.631372, 0.596078, 1.);
+const ORANGE: Color = Color::Rgba(0.796078, 0.294117, 0.086274, 1.);
+
+const HEIGHT: u32 = 26;
 
 enum Message {
-    Time(String),
-    Workspaces(Vec<Workspace>),
+    Battery((String, String)),
     I3Mode(String),
+    Time(String),
     Unlisten,
+    Workspaces(Vec<Workspace>),
+}
+
+struct Battery {
+    capacity: String,
+    status: String,
 }
 
 struct State {
+    battery: Battery,
     time: String,
     i3mode: String,
     workspaces: Vec<(String, color::Color)>,
@@ -47,13 +70,18 @@ impl Store {
         match msg {
             Message::Time(time) => state.time = time,
 
+            Message::Battery( (capacity, status) ) => {
+                state.battery.status = status;
+                state.battery.capacity = capacity;
+            },
+
             Message::Workspaces(workspaces) => {
                 let mut work_vec = Vec::new();
                 for workspace in workspaces {
                     if workspace.focused {
-                        work_vec.push((workspace.name.clone(), color::LIGHT_GREEN));
+                        work_vec.push((workspace.name.clone(), BASE0));
                     } else {
-                        work_vec.push((workspace.name.clone(), color::GRAY));
+                        work_vec.push((workspace.name.clone(), BASE01));
                     }
                 }
 
@@ -87,7 +115,6 @@ impl Store {
     }
 }
 
-
 fn main() {
 
     let (tx, rx) = mpsc::channel();
@@ -95,19 +122,40 @@ fn main() {
     let state = Arc::new(Mutex::new(State {
         i3mode: "default".to_string(),
         time: "".to_string(),
-        workspaces: Vec::new()
+        workspaces: Vec::new(),
+        battery: Battery{
+            capacity: "".to_string(),
+            status: "".to_string(),
+        }
     }));
 
     // set up our store and start listening
     let store = Store { state: state.clone() };
     store.listen(rx);
 
-    // instantiate a our system bar
-    let mut rubar = bar::Bar::new();
+    // instantiate a our system
+    let mut rubar = bar::Bar::new(HEIGHT);
 
+    // load up some assets
+    if let Err(e) = env::home_dir()
+        .ok_or(BarError::Bar(format!("could not located HOME env")))
+        .and_then( |path| {
+            let font_path = path.join(Path::new(FONT_PATH));
+            rubar.set_fonts(&font_path)
+        }) {
+            println!("{}", e);
+        }
+
+    // change the default theme.
+    rubar.ui.theme.background_color = BASE03;
+    rubar.ui.theme.label_color = BASE0;
+    rubar.ui.theme.padding = Padding::none();
+    rubar.ui.theme.border_color = BASE02;
 
     // set up some sensors to produce data
-    let systime = sensors::systime::SysTime{};
+    let systime = sensors::systime::SysTime{
+        interval: Duration::from_millis(100),
+    };
     if let Err(e) = systime.run(tx.clone(), Message::Time) {
         println!("{}", e); // TODO logging
         return;
@@ -121,41 +169,60 @@ fn main() {
         return;
     }
 
+    let battery = sensors::battery::Battery{
+        interval: Duration::from_millis(5000),
+    };
+
+    if let Err(e) = battery.run(tx.clone(), Message::Battery) {
+        println!("{}", e); // TODO logging
+        return;
+    }
 
     // set up some widgets
     let time_widget = gauges::simple_text::Simple::new(
         rubar.ui.widget_id_generator());
 
-    let time_widget2 = gauges::simple_text::Simple::new(
+    let battery_widget = gauges::simple_text::Simple::new(
         rubar.ui.widget_id_generator());
-
 
     let workspace_widget = gauges::button_row::ButtonRow::new(
-        rubar.ui.widget_id_generator());
+        30, BASE03, rubar.ui.widget_id_generator()
+    );
 
     // bind widgets to our store state and finally call animate_frame to
     // start the draw render loop.
     rubar
         .bind_right(
-        move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            bar::DEFAULT_GAUGE_WIDTH,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-            time_widget.render(&state.time, slot_id, ui_widgets);
+                time_widget.render(&state.time, slot_id, ui_widgets);
 
-        }).bind_right(
-        move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            })
+        .bind_right(
+            bar::DEFAULT_GAUGE_WIDTH,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-            time_widget2.render(&state.time, slot_id, ui_widgets);
+                let battery_line = format!(
+                    "{}%  {}",
+                    state.battery.capacity.trim(),
+                    state.battery.status.trim(),
+                );
 
-        }).bind_left(
-        move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+                battery_widget.render(&battery_line, slot_id, ui_widgets);
+            })
+        .bind_left(
+            bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-            if let Some(button_number) = workspace_widget
-                .render(state.workspaces.clone(), slot_id, ui_widgets) {
+                if let Some(button_number) = workspace_widget
+                    .render(state.workspaces.clone(), slot_id, ui_widgets) {
 
-                    if let Err(e) = i3workspace.change_workspace(button_number + 1) {
-                        println!("{:?}", e); // logging
+                        if let Err(e) = i3workspace.change_workspace(button_number + 1) {
+                            println!("{:?}", e); // logging
+                        }
                     }
-                }
 
-        }).animate_frame(state);
+            })
+        .animate_frame(state);
 }
