@@ -12,6 +12,11 @@ pub struct SysTime {
 type RunResult = result::Result<(), Box<Error>>;
 
 impl SysTime {
+
+    pub fn new(interval: Duration) -> SysTime {
+        SysTime{interval: interval}
+    }
+
     pub fn run<F, T: 'static + Send>(&self, tx: mpsc::Sender<T>, f: F) -> RunResult
         where F: 'static + Send + Fn(String) -> T
     {
@@ -22,8 +27,8 @@ impl SysTime {
                 let dt = Local::now();
                 let time_str = dt.format("%Y-%m-%d %H:%M:%S").to_string();
 
-                if let Err(_) = tx.send(f(time_str)) {
-                    continue; // TODO Logging?
+                if let Err(e) = tx.send(f(time_str)) {
+                    println!("SysTime ERROR: {}", e); // TODO Logging?
                 }
 
                 thread::sleep(iv);

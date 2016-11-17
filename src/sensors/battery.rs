@@ -13,6 +13,11 @@ static CAPACITY_PATH: &'static str = "/sys/class/power_supply/BAT1/capacity";
 static STATUS_PATH: &'static str = "/sys/class/power_supply/BAT1/status";
 
 impl Battery {
+
+    pub fn new(interval: Duration) -> Battery {
+        Battery{interval: interval}
+    }
+
     pub fn run<T, F>(&self, tx: Sender<T>, f: F) -> Result<(), Box<Error>>
         where F: 'static + Send + Fn((String, String)) -> T,
               T: 'static + Send,

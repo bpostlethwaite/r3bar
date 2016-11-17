@@ -12,6 +12,11 @@ pub struct I3Workspace {}
 type RunResult = Result<(), Box<Error>>;
 
 impl I3Workspace {
+
+    pub fn new() -> I3Workspace {
+        I3Workspace{}
+    }
+
     pub fn run<T, F, G>(&self, tx: Sender<T>, f: F, g: G) -> RunResult
         where F: 'static + Send + Fn(Vec<Workspace>) -> T,
               T: 'static + Send,
@@ -26,8 +31,8 @@ impl I3Workspace {
         thread::spawn(move || {
 
             // only ask for all workspaces when we detect a related event
-            let mut listener = I3EventListener::connect().unwrap();
             let subs = [Subscription::Workspace, Subscription::Mode];
+            let mut listener = I3EventListener::connect().unwrap();
             listener.subscribe(&subs).unwrap();
 
             for event in listener.listen() {

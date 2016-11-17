@@ -4,25 +4,34 @@
 // and very helpful see:
 // http://stackoverflow.com/questions/27927433/position-toolbar-on-reserved-desktop-space-obtained-with-net-wm-strut-and-net
 
+extern crate byteorder;
 extern crate chrono;
 extern crate conrod;
-extern crate piston_window;
 extern crate i3ipc;
+extern crate piston_window;
+extern crate regex;
+extern crate serde_json;
+extern crate unix_socket;
 
-mod sensors;
 mod bar;
-mod gauges;
 mod error;
+mod gauges;
+mod sensors;
+mod message;
 
+use conrod::Padding;
+use conrod::color::{Color, self};
 use error::BarError;
 use i3ipc::reply::{Workspace};
+use message::{Message, WebpackInfo};
+use sensors::wifi::WifiStatus;
+use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 use std::{env, thread};
 
-use conrod::color::{Color, self};
-use conrod::Padding;
+
 
 static FONT_PATH: &'static str = "programming/rubar/assets/fonts/Roboto Mono for Powerline.ttf";
 
@@ -38,14 +47,6 @@ const MAGENTA: Color = Color::Rgba(0.827450, 0.211764, 0.509803, 1.);
 
 const HEIGHT: u32 = 26;
 
-enum Message {
-    Battery((String, String)),
-    I3Mode(String),
-    Time(String),
-    Unlisten,
-    Workspaces(Vec<Workspace>),
-}
-
 struct Battery {
     capacity: String,
     status: String,
@@ -60,6 +61,8 @@ struct State {
     battery: Battery,
     time: String,
     i3: I3,
+    webpack: WebpackInfo,
+    wifi: WifiStatus,
 }
 
 struct Store {
@@ -100,6 +103,11 @@ impl Store {
                     state.i3.mode = mode;
                 }
             },
+
+            Message::Wifi(status) => state.wifi = status,
+
+            Message::Webpack(info) => state.webpack = info,
+
             Message::Unlisten => return,
         };
     }
@@ -140,6 +148,8 @@ fn main() {
             mode: "".to_string(),
             workspaces: Vec::new(),
         },
+        webpack: WebpackInfo::Done,
+        wifi: WifiStatus::new(53.),
     }));
 
     // set up our store and start listening
@@ -166,45 +176,43 @@ fn main() {
     rubar.ui.theme.border_color = BASE02;
     rubar.ui.theme.font_size_medium = 14;
 
-    // set up some sensors to produce data
-    let systime = sensors::systime::SysTime{
-        interval: Duration::from_millis(100),
-    };
-    if let Err(e) = systime.run(tx.clone(), Message::Time) {
-        println!("{}", e); // TODO logging
-        return;
+    // set up the sensors
+    let i3workspace = sensors::i3workspace::I3Workspace::new();
+    let systime = sensors::systime::SysTime::new(Duration::from_millis(100));
+    let battery = sensors::battery::Battery::new(Duration::from_millis(5000));
+    let ipc = sensors::ipc::Ipc::new();
+
+    if let Err(e) = || -> Result<(), Box<Error>> {
+        ipc.run(tx.clone())?;
+        systime.run(tx.clone(), Message::Time)?;
+        i3workspace.run(tx.clone(), Message::Workspaces, Message::I3Mode)?;
+        battery.run(tx.clone(), Message::Battery)?;
+        sensors::wifi::ConfigureWifi::new()?.configure()
+            .run(tx.clone(), Message::Wifi)?;
+        Ok(())
+    }() {
+        println!("{}", e);
     }
 
-    let i3workspace = sensors::i3workspace::I3Workspace{};
-    if let Err(e) = i3workspace.run(
-        tx.clone(), Message::Workspaces, Message::I3Mode
-    ) {
-        println!("{}", e); // TODO logging
-        return;
-    }
-
-    let battery = sensors::battery::Battery{
-        interval: Duration::from_millis(5000),
-    };
-
-    if let Err(e) = battery.run(tx.clone(), Message::Battery) {
-        println!("{}", e); // TODO logging
-        return;
-    }
-
-    // set up some widgets
+    // set up gauges to display sensor data
     let time_widget = gauges::simple_text::Simple::new(
         rubar.ui.widget_id_generator());
 
     let battery_widget = gauges::simple_text::Simple::new(
         rubar.ui.widget_id_generator());
 
+    let wifi_widget = gauges::simple_text::Simple::new(
+        rubar.ui.widget_id_generator());
+
+    let webpack_widget = gauges::simple_text::Simple::new(
+        rubar.ui.widget_id_generator());
+
     let workspace_widget = gauges::button_row::ButtonRow::new(
         30, BASE03, MAGENTA, rubar.ui.widget_id_generator()
     );
 
-    // bind widgets to our store state and finally call animate_frame to
-    // start the draw render loop.
+    // bind widgets to our store state and call animate_frame to
+    // start the render loop.
     rubar
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH + 10,
@@ -225,22 +233,58 @@ fn main() {
 
                 battery_widget.render(&battery_line, slot_id, ui_widgets);
             })
+        .bind_right(
+            bar::DEFAULT_GAUGE_WIDTH,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+
+                let ssid = state.wifi.ssid.clone()
+                    .unwrap_or("unconnected".to_string());
+                let signal_quality = state.wifi.signal.map(dbm_to_percent)
+                    .unwrap_or(0.);
+
+                let wifi_line = format!("{}  {}%", ssid, signal_quality);
+
+                wifi_widget.render(&wifi_line, slot_id, ui_widgets);
+            })
         .bind_left(
             bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-                if let Some(button_number) = workspace_widget
+                if let Some(ibtn) = workspace_widget
                     .render(
                         state.i3.workspaces.clone(),
                         &state.i3.mode,
                         slot_id,
                         ui_widgets) {
 
-                        if let Err(e) = i3workspace.change_workspace(button_number + 1) {
-                            println!("{:?}", e); // logging
+                        if let Err(e) = i3workspace.change_workspace(ibtn + 1) {
+                            println!("{}", e); // logging
                         }
                     }
+            })
+        .bind_right(
+            bar::DEFAULT_GAUGE_WIDTH,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+
+                let info = state.webpack.clone();
+                let webpack_line = format!(
+                    "{}", match info {
+                        WebpackInfo::Compile => "compiling",
+                        _ => "",
+                    }
+                );
+
+                webpack_widget.render(&webpack_line, slot_id, ui_widgets);
 
             })
         .animate_frame(state);
+}
+
+
+fn dbm_to_percent(dbm: f64) -> f64 {
+    2. * (dbm + 100.)
+}
+
+fn percent_to_dbm(percent: f64) -> f64 {
+    (percent / 2.) - 100.
 }
