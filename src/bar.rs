@@ -2,10 +2,8 @@ use conrod::backend::piston_window::GlyphCache;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
 use piston_window::{self, EventLoop, PistonWindow, Size, UpdateEvent, Window, WindowSettings};
-use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::io::Error as ioError;
 
 use error::BarError;
 
@@ -15,8 +13,33 @@ pub const DEFAULT_GAUGE_WIDTH: Width = 200;
 
 const WIDTH: u32 = 200; // this is overridden to be screen width
 
+#[derive(Debug, Clone, Copy)]
+pub struct Animate {
+    max_frames: i64,
+    frames: i64,
+}
+
+impl Animate {
+
+    pub fn new() -> Animate {
+        Animate{frames: 0, max_frames: 4294967296}
+    }
+
+    pub fn next_frame(&mut self) {
+        if self.frames >= self.max_frames {
+            self.frames = 0;
+        } else {
+            self.frames = self.frames + 1;
+        }
+    }
+
+    pub fn tick(&self, frames_per_tick: i64) -> bool {
+        (self.frames % frames_per_tick) == 0
+    }
+}
+
 struct Gauge<T> {
-    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell)>,
+    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell, Animate)>,
     width: u32,
     id: Id,
 }
@@ -125,9 +148,9 @@ impl<T: 'static> Bar<T> {
         elems.extend(self.rights);
 
         let mut text_texture_cache = GlyphCache::new(window, WIDTH, self.height);
+        let mut animate = Animate::new();
 
         while let Some(event) = window.next() {
-
             // Convert the piston event to a conrod event.
             let convert = conrod::backend::piston_window::convert_event;
             if let Some(e) = convert(event.clone(), &window) {
@@ -183,10 +206,12 @@ impl<T: 'static> Bar<T> {
                 // call the bind functions on each Gauge
                 for elem in elems.iter() {
                     if let &Elem::Gauge(Gauge { id, ref bind, .. }) = elem {
-                        bind(&state, id, &mut ui);
+                        bind(&state, id, &mut ui, animate.clone());
                     }
                 }
             });
+
+            animate.next_frame();
 
             window.draw_2d(&event, |c, g| {
                 // Only re-draw if there was some change in the `Ui`.
@@ -213,7 +238,7 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn bind_left<F>(mut self, width: Width, bind: F) -> Bar<T>
-        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
+        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Animate)
     {
         let id = self.gen_id();
 
@@ -227,7 +252,7 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn bind_right<F>(mut self, width: Width, bind: F) -> Bar<T>
-        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
+        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Animate)
     {
         let id = self.gen_id();
 

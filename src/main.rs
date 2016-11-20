@@ -1,12 +1,6 @@
-// see _NET_WM_STRUT_PARTIAL in https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm140130317566832
-// and usage in https://github.com/Lokaltog/candybar/blob/develop/src/candybar.c
-// and https://github.com/LemonBoy/bar/blob/master/lemonbar.c
-// and very helpful see:
-// http://stackoverflow.com/questions/27927433/position-toolbar-on-reserved-desktop-space-obtained-with-net-wm-strut-and-net
-
 extern crate byteorder;
 extern crate chrono;
-extern crate conrod;
+#[macro_use] extern crate conrod;
 extern crate i3ipc;
 extern crate piston_window;
 extern crate regex;
@@ -18,19 +12,17 @@ mod error;
 mod gauges;
 mod sensors;
 mod message;
+mod widgets;
 
-use conrod::Padding;
+use conrod::{Padding};
 use conrod::color::{Color, self};
 use error::BarError;
-use i3ipc::reply::{Workspace};
 use message::{Message, WebpackInfo};
 use sensors::wifi::WifiStatus;
-use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 use std::{env, thread};
-
 
 
 static FONT_PATH: &'static str = "programming/rubar/assets/fonts/Roboto Mono for Powerline.ttf";
@@ -134,6 +126,11 @@ impl Store {
     }
 }
 
+fn error_exit(error: error::BarError) {
+    println!("{}", error);
+    std::process::exit(1);
+}
+
 fn main() {
 
     let (tx, rx) = mpsc::channel();
@@ -166,7 +163,7 @@ fn main() {
             let font_path = path.join(Path::new(FONT_PATH));
             rubar.set_fonts(&font_path)
         }) {
-            println!("{}", e);
+            error_exit(e);
         }
 
     // change the default theme.
@@ -182,7 +179,8 @@ fn main() {
     let battery = sensors::battery::Battery::new(Duration::from_millis(5000));
     let ipc = sensors::ipc::Ipc::new();
 
-    if let Err(e) = || -> Result<(), Box<Error>> {
+    // run the sensors and collect any errors
+    if let Err(e) = || -> Result<(), BarError> {
         ipc.run(tx.clone())?;
         systime.run(tx.clone(), Message::Time)?;
         i3workspace.run(tx.clone(), Message::Workspaces, Message::I3Mode)?;
@@ -191,7 +189,8 @@ fn main() {
             .run(tx.clone(), Message::Wifi)?;
         Ok(())
     }() {
-        println!("{}", e);
+        // if any sensors fail bail.
+        error_exit(e);
     }
 
     // set up gauges to display sensor data
@@ -204,26 +203,26 @@ fn main() {
     let wifi_widget = gauges::simple_text::Simple::new(
         rubar.ui.widget_id_generator());
 
-    let webpack_widget = gauges::simple_text::Simple::new(
-        rubar.ui.widget_id_generator());
-
     let workspace_widget = gauges::button_row::ButtonRow::new(
         30, BASE03, MAGENTA, rubar.ui.widget_id_generator()
     );
+
+    let redkitt = gauges::redkitt::RedKitt::new(
+        rubar.ui.widget_id_generator());
 
     // bind widgets to our store state and call animate_frame to
     // start the render loop.
     rubar
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH + 10,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 time_widget.render(&state.time, slot_id, ui_widgets);
 
             })
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 let battery_line = format!(
                     "{}%  {}",
@@ -235,7 +234,7 @@ fn main() {
             })
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 let ssid = state.wifi.ssid.clone()
                     .unwrap_or("unconnected".to_string());
@@ -248,7 +247,7 @@ fn main() {
             })
         .bind_left(
             bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 if let Some(ibtn) = workspace_widget
                     .render(
@@ -264,18 +263,18 @@ fn main() {
             })
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, animator| {
 
-                let info = state.webpack.clone();
-                let webpack_line = format!(
-                    "{}", match info {
-                        WebpackInfo::Compile => "compiling",
-                        _ => "",
+                let kitt_animator = match state.webpack {
+                    WebpackInfo::Compile => Some(animator),
+                    _ => None,
+                };
+
+                if let Some(_) = redkitt.render(kitt_animator, slot_id, ui_widgets) {
+                    if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
+                        println!("{}", e); // logging
                     }
-                );
-
-                webpack_widget.render(&webpack_line, slot_id, ui_widgets);
-
+                }
             })
         .animate_frame(state);
 }

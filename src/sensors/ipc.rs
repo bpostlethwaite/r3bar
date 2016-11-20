@@ -1,14 +1,12 @@
 use byteorder::{ReadBytesExt, WriteBytesExt, LittleEndian};
 use message::{Message, WebpackInfo};
-use serde_json as json;
 use std::error::Error;
+use std::fs;
 use std::io::{Read, Write, self};
 use std::str::FromStr;
 use std::sync::mpsc;
 use std::{result, thread};
 use unix_socket::{UnixStream, UnixListener};
-use error::BarError;
-use std::fs;
 
 pub struct Ipc {}
 
@@ -23,7 +21,7 @@ impl Ipc {
 
     pub fn run(&self, tx: mpsc::Sender<Message>) -> RunResult {
 
-        fs::remove_file(UNIX_SOCK)?;
+        fs::remove_file(UNIX_SOCK).ok();
         let listener = UnixListener::bind(UNIX_SOCK)?;
 
         thread::spawn(move || {
@@ -71,31 +69,15 @@ fn handle_client(mut stream: UnixStream, tx: mpsc::Sender<Message>) {
                 }
             },
 
-            Err(e) => println!("ipc ERROR: {}", e),
+            Err(e) => {
+                // stop listening to this connection on error. Client will have
+                // to reconnect.
+                println!("ipc ERROR: {}", e);
+                break;
+            },
         }
     }
 }
-
-/// Data for `WebpackEvent`.
-impl FromStr for WebpackInfo {
-    type Err = BarError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let data: json::Value = json::from_str(s)?;
-        let obj = data.as_object().ok_or(
-            BarError::Bar(format!("webpack json not object")))?;
-        let val = obj.get("change").unwrap();
-        let change = match *val {
-            json::Value::String(ref v) => v,
-            _ => Err(BarError::Bar(format!("change field missing String")))?,
-        };
-        Ok(match change.as_ref() {
-            "compile" => WebpackInfo::Compile,
-            "done" => WebpackInfo::Done,
-            _ => unreachable!()
-        })
-    }
-}
-
 
 trait I3Funcs {
     fn send_i3_message(&mut self, u32, &str) -> io::Result<()>;
@@ -103,19 +85,24 @@ trait I3Funcs {
 }
 
 impl I3Funcs for UnixStream {
+
     fn send_i3_message(&mut self, message_type: u32, payload: &str) -> io::Result<()> {
         let mut bytes = Vec::with_capacity(14 + payload.len());
-        bytes.extend("i3-ipc".bytes());                              // 6 bytes
+        bytes.extend("i3-ipc".bytes());                         // 6 bytes
         bytes.write_u32::<LittleEndian>(payload.len() as u32)?; // 4 bytes
         bytes.write_u32::<LittleEndian>(message_type)?;         // 4 bytes
-        bytes.extend(payload.bytes());                               // payload.len() bytes
+        bytes.extend(payload.bytes());                          // payload.len() bytes
         self.write_all(&bytes[..])
     }
 
     /// returns a tuple of (message type, payload)
     fn receive_i3_message(&mut self) -> io::Result<(u32, String)> {
         let mut magic_data = [0_u8; 6];
-        self.read_exact(&mut magic_data)?;
+        if let Err(e) = self.read_exact(&mut magic_data) {
+            // match e type to https://github.com/tbu-/rust-rfcs/blob/master/text/0980-read-exact.md#detailed-design and if match aggessively attempt to read and junk the whole buffer.
+            println!("{:?}", e);
+            return Err(e);
+        }
         let magic_string = String::from_utf8_lossy(&magic_data);
         if magic_string != "i3-ipc" {
             let error_text = format!("unexpected magic string: expected 'i3-ipc' but got {}",
@@ -125,7 +112,12 @@ impl I3Funcs for UnixStream {
         let payload_len = self.read_u32::<LittleEndian>()?;
         let message_type = self.read_u32::<LittleEndian>()?;
         let mut payload_data = vec![0_u8 ; payload_len as usize];
-        self.read_exact(&mut payload_data[..])?;
+        if let Err(e) = self.read_exact(&mut payload_data[..]) {
+            // match e type to https://github.com/tbu-/rust-rfcs/blob/master/text/0980-read-exact.md#detailed-design
+
+            println!("{:?}", e);
+            return Err(e);
+        };
         let payload_string = String::from_utf8_lossy(&payload_data).into_owned();
         Ok((message_type, payload_string))
     }

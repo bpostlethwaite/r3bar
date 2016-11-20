@@ -1,7 +1,4 @@
-use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget,
-             Place};
-use std::cmp;
-
+use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget, Place};
 
 pub struct ButtonRow {
     ids: Vec<conrod::widget::Id>,
@@ -67,7 +64,6 @@ impl ButtonRow {
                 clicked_button = Some(i as i64);
             }
         }
-
         // and then line subsequent buttons up relative to first button
         for ((i, &button_id), (title, color)) in ids_titles {
             let btn = basic_btn();
