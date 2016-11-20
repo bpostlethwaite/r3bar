@@ -1,6 +1,6 @@
 use conrod::{self, widget, Colorable, Place, Positionable, Scalar, Widget};
 
-use bar::Animate;
+use animate::Animate;
 
 const FRAMES_PER_TICK: i64 = 8;
 

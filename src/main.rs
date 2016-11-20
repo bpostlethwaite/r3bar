@@ -7,6 +7,7 @@ extern crate regex;
 extern crate serde_json;
 extern crate unix_socket;
 
+mod animate;
 mod bar;
 mod error;
 mod gauges;
@@ -215,14 +216,14 @@ fn main() {
     rubar
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH + 10,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
                 time_widget.render(&state.time, slot_id, ui_widgets);
 
             })
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
                 let battery_line = format!(
                     "{}%  {}",
@@ -234,7 +235,7 @@ fn main() {
             })
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
                 let ssid = state.wifi.ssid.clone()
                     .unwrap_or("unconnected".to_string());
@@ -247,7 +248,7 @@ fn main() {
             })
         .bind_left(
             bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
                 if let Some(ibtn) = workspace_widget
                     .render(
@@ -263,14 +264,14 @@ fn main() {
             })
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, animator| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-                let kitt_animator = match state.webpack {
-                    WebpackInfo::Compile => Some(animator),
-                    _ => None,
+                let do_animate = match state.webpack {
+                    WebpackInfo::Compile => true,
+                    _ => false,
                 };
 
-                if let Some(_) = redkitt.render(kitt_animator, slot_id, ui_widgets) {
+                if let Some(_) = redkitt.render(do_animate, slot_id, ui_widgets) {
                     if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
                         println!("{}", e); // logging
                     }

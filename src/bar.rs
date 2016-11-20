@@ -13,33 +13,9 @@ pub const DEFAULT_GAUGE_WIDTH: Width = 200;
 
 const WIDTH: u32 = 200; // this is overridden to be screen width
 
-#[derive(Debug, Clone, Copy)]
-pub struct Animate {
-    max_frames: i64,
-    frames: i64,
-}
-
-impl Animate {
-
-    pub fn new() -> Animate {
-        Animate{frames: 0, max_frames: 4294967296}
-    }
-
-    pub fn next_frame(&mut self) {
-        if self.frames >= self.max_frames {
-            self.frames = 0;
-        } else {
-            self.frames = self.frames + 1;
-        }
-    }
-
-    pub fn tick(&self, frames_per_tick: i64) -> bool {
-        (self.frames % frames_per_tick) == 0
-    }
-}
 
 struct Gauge<T> {
-    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell, Animate)>,
+    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell)>,
     width: u32,
     id: Id,
 }
@@ -148,7 +124,6 @@ impl<T: 'static> Bar<T> {
         elems.extend(self.rights);
 
         let mut text_texture_cache = GlyphCache::new(window, WIDTH, self.height);
-        let mut animate = Animate::new();
 
         while let Some(event) = window.next() {
             // Convert the piston event to a conrod event.
@@ -206,12 +181,10 @@ impl<T: 'static> Bar<T> {
                 // call the bind functions on each Gauge
                 for elem in elems.iter() {
                     if let &Elem::Gauge(Gauge { id, ref bind, .. }) = elem {
-                        bind(&state, id, &mut ui, animate.clone());
+                        bind(&state, id, &mut ui);
                     }
                 }
             });
-
-            animate.next_frame();
 
             window.draw_2d(&event, |c, g| {
                 // Only re-draw if there was some change in the `Ui`.
@@ -238,7 +211,7 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn bind_left<F>(mut self, width: Width, bind: F) -> Bar<T>
-        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Animate)
+        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
     {
         let id = self.gen_id();
 
@@ -252,7 +225,7 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn bind_right<F>(mut self, width: Width, bind: F) -> Bar<T>
-        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Animate)
+        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
     {
         let id = self.gen_id();
 
