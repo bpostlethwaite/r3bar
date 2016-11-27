@@ -6,11 +6,13 @@
 - and very helpful see: http://stackoverflow.com/questions/27927433/position-toolbar-on-reserved-desktop-space-obtained-with-net-wm-strut-and-net
 ** TODO Clean up Glutin hack
 ** TODO Ensure Rubar works with OpenBox
-** TODO Image / icon handling
+** DONE Image / icon handling
+CLOSED: [2016-11-27 Sun 00:00]
 ** TODO vol command writes back to rubar socket for instant update
-** TODO "fit to" widget sizing
+** TODO volume sensor recognizes mute
+** TODO "fit to contents" widget sizing
 ** TODO adjustable widget sizing (draggable)
-** TODO Popup window (at first use for debugging)
+** TODO Popup window (first use for debugging)
 ** TODO system tray
-** TODO rmsg binary for easy msg'ing to rbar
+** TODO r3msg binary for easy msg'ing to rbar
 ** TODO Split out r3bar, r3msg, r3sensors, r3gauges and application that brings them together - r3.

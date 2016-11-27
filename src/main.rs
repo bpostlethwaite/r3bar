@@ -31,6 +31,7 @@ use std::{env, thread};
 static FONT_PATH: &'static str = "programming/rubar/assets/fonts/Roboto Mono for Powerline.ttf";
 
 static BATTERY_PATH: &'static str = "programming/rubar/assets/icons/battery";
+static VOLUME_PATH: &'static str = "programming/rubar/assets/icons/volume";
 
 const BASE03: Color = Color::Rgba(0., 0.168627, 0.211764, 1.);
 const BASE02: Color = Color::Rgba(0.027450, 0.211764, 0.258823, 1.);
@@ -54,8 +55,21 @@ struct BatteryIcons {
     none: icon_text::Icon,
 }
 
+struct VolumeIcons{
+    high: icon_text::Icon,
+    medium: icon_text::Icon,
+    low: icon_text::Icon,
+    mute: icon_text::Icon,
+    none: icon_text::Icon,
+}
+
 struct Battery {
     capacity: f64,
+    icon: icon_text::Icon,
+}
+
+struct Volume {
+    percent: f64,
     icon: icon_text::Icon,
 }
 
@@ -67,7 +81,7 @@ struct I3 {
 struct State {
     battery: Battery,
     time: String,
-    volume: String,
+    volume: Volume,
     i3: I3,
     webpack: WebpackInfo,
     wifi: WifiStatus,
@@ -77,6 +91,7 @@ struct Store<T> {
     state: Arc<Mutex<State>>,
     handles: Vec<thread::JoinHandle<T>>,
     battery_icons: BatteryIcons,
+    volume_icons: VolumeIcons,
 }
 
 
@@ -144,7 +159,25 @@ impl <T: 'static + Send>Store<T> {
 
             Message::Webpack(info) => state.webpack = info,
 
-            Message::Volume(vol) => state.volume = vol,
+            Message::Volume(volume) => {
+                match volume.parse::<f64>() {
+                    Ok(vol) => {
+                        state.volume.percent = vol;
+                        state.volume.icon = match vol {
+                            0.0 => self.volume_icons.mute,
+                            0.0 ... 35.0 => self.volume_icons.low,
+                            35.0 ... 75.0 => self.volume_icons.medium,
+                            75.0 ... 100.0 => self.volume_icons.high,
+                            _ => self.volume_icons.none,
+                        }
+                    },
+                    Err(e) => {
+                        println!("Volume parse error {}", e);
+                        state.volume.percent = 0.;
+                        state.volume.icon = self.volume_icons.none;
+                    }
+                }
+            },
 
             Message::Unlisten => return,
         };
@@ -185,29 +218,34 @@ fn main() {
     let mut rubar = bar::Bar::new(HEIGHT);
 
     // load up some assets
-    let battery_icons = match env::home_dir()
-        .ok_or(BarError::Bar(format!("could not located HOME env")))
-        .and_then(|path| {
-            let font_path = path.join(Path::new(FONT_PATH));
-            let bat_path = path.join(Path::new(BATTERY_PATH));
-            rubar.set_fonts(&font_path)?;
+    let home = env::home_dir().unwrap();
+    let font_path = home.join(Path::new(FONT_PATH));
+    let bat_path = home.join(Path::new(BATTERY_PATH));
+    let vol_path = home.join(Path::new(VOLUME_PATH));
 
-            let bpath = |p| bat_path.join(p);
-            let ic = |id| icon_text::Icon{w: 24.0, h: 24.0, id: id, padding: 0.0};
+    rubar.set_fonts(&font_path).unwrap();
 
-            Ok(BatteryIcons{
-                charged: ic(rubar.load_icons(&bpath("charged-battery.png"))?),
-                charging: ic(rubar.load_icons(&bpath("charging-battery.png"))?),
-                empty: ic(rubar.load_icons(&bpath("empty-battery.png"))?),
-                full: ic(rubar.load_icons(&bpath("full-battery.png"))?),
-                half: ic(rubar.load_icons(&bpath("half-battery.png"))?),
-                low: ic(rubar.load_icons(&bpath("low-battery.png"))?),
-                none: ic(rubar.load_icons(&bpath("no-battery.png"))?),
-            })
-        }) {
-            Ok(b) => b,
-            Err(e) => return error_exit(e),
-        };
+    let bpath = |p| bat_path.join(p);
+    let vpath = |p| vol_path.join(p);
+    let ic = |id| icon_text::Icon{w: 24.0, h: 24.0, id: id, padding: 0.0};
+
+    let battery_icons = BatteryIcons{
+        charged: ic(rubar.load_icons(&bpath("charged-battery.png")).unwrap()),
+        charging: ic(rubar.load_icons(&bpath("charging-battery.png")).unwrap()),
+        empty: ic(rubar.load_icons(&bpath("empty-battery.png")).unwrap()),
+        full: ic(rubar.load_icons(&bpath("full-battery.png")).unwrap()),
+        half: ic(rubar.load_icons(&bpath("half-charged-battery.png")).unwrap()),
+        low: ic(rubar.load_icons(&bpath("low-battery.png")).unwrap()),
+        none: ic(rubar.load_icons(&bpath("no-battery.png")).unwrap()),
+    };
+
+    let volume_icons = VolumeIcons{
+        high: ic(rubar.load_icons(&vpath("high-volume.png")).unwrap()),
+        medium: ic(rubar.load_icons(&vpath("medium-volume.png")).unwrap()),
+        low: ic(rubar.load_icons(&vpath("low-volume.png")).unwrap()),
+        mute: ic(rubar.load_icons(&vpath("mute-volume.png")).unwrap()),
+        none: ic(rubar.load_icons(&vpath("no-audio.png")).unwrap()),
+    };
 
     // change the default theme.
     rubar.ui.theme.background_color = BASE03;
@@ -276,20 +314,26 @@ fn main() {
         },
         webpack: WebpackInfo::Done,
         wifi: WifiStatus::new(53.),
-        volume: "".to_string(),
+        volume: Volume{
+            percent: 0.,
+            icon: volume_icons.none,
+        },
     }));
 
     // set up our store and start listening
     let store = Store {
         state: state.clone(),
         handles: vec![thread],
-        battery_icons: battery_icons
+        battery_icons: battery_icons,
+        volume_icons: volume_icons,
     };
     store.listen(rx);
 
     // bind widgets to our store state and call animate_frame to
     // start the render loop.
     rubar
+
+    // TIME
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH + 10,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
@@ -300,14 +344,30 @@ fn main() {
                 }, slot_id, ui_widgets);
 
             })
+
+    // BATTERY
         .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH,
+            bar::DEFAULT_GAUGE_WIDTH / 2,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
                 battery_widget.render(icon_text::Opts{
                     maybe_icon: Some(state.battery.icon),
                     maybe_text: Some(&format!("{}%", state.battery.capacity)),
                 }, slot_id, ui_widgets);
             })
+
+    // VOLUME
+        .bind_right(
+            bar::DEFAULT_GAUGE_WIDTH / 2,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+
+                volume_widget.render(icon_text::Opts{
+                    maybe_icon: Some(state.volume.icon),
+                    maybe_text: Some(&format!("{}%", state.volume.percent)),
+                }, slot_id, ui_widgets);
+
+            })
+
+    // WIFI
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
@@ -324,16 +384,8 @@ fn main() {
                     maybe_text: Some(&wifi_line),
                 }, slot_id, ui_widgets);
             })
-        .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH + 10,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
 
-                volume_widget.render(icon_text::Opts{
-                    maybe_icon: None,
-                    maybe_text: Some(&format!("{}%", state.volume)),
-                }, slot_id, ui_widgets);
-
-            })
+    // WEBPACK SENSOR
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
@@ -349,6 +401,8 @@ fn main() {
                     }
                 }
             })
+
+    // I3 WORKSPACES
         .bind_left(
             bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
