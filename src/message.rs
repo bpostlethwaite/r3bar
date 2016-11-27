@@ -6,12 +6,14 @@ use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum Message {
-    Battery((String, String)),
+    Battery((String, String, String)),
     I3Mode(String),
     Time(String),
+    Unpark,
     Unlisten,
-    Wifi(WifiStatus),
+    Volume(String),
     Webpack(WebpackInfo),
+    Wifi(WifiStatus),
     Workspaces(Vec<Workspace>),
 }
 

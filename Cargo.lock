@@ -5,6 +5,7 @@ dependencies = [
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.2.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "conrod 0.44.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gfx_device_gl 0.11.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "i3ipc 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "piston_window 0.52.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 0.1.80 (registry+https://github.com/rust-lang/crates.io-index)",

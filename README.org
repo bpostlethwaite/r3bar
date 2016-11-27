@@ -4,12 +4,13 @@
 - and usage in https://github.com/Lokaltog/candybar/blob/develop/src/candybar.c
 - and https://github.com/LemonBoy/bar/blob/master/lemonbar.c
 - and very helpful see: http://stackoverflow.com/questions/27927433/position-toolbar-on-reserved-desktop-space-obtained-with-net-wm-strut-and-net
-** Hacking on a Linux system status bar in Rust.
-*** Motivation
-*** Hello world
-*** Conrod
-*** Closing
 ** TODO Clean up Glutin hack
 ** TODO Ensure Rubar works with OpenBox
-** DONE Use as default bar
-CLOSED: [2016-11-19 Sat 13:07]
+** TODO Image / icon handling
+** TODO vol command writes back to rubar socket for instant update
+** TODO "fit to" widget sizing
+** TODO adjustable widget sizing (draggable)
+** TODO Popup window (at first use for debugging)
+** TODO system tray
+** TODO rmsg binary for easy msg'ing to rbar
+** TODO Split out r3bar, r3msg, r3sensors, r3gauges and application that brings them together - r3.

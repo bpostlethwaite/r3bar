@@ -1,9 +1,11 @@
 use conrod::backend::piston_window::GlyphCache;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
-use piston_window::{self, EventLoop, PistonWindow, Size, UpdateEvent, Window, WindowSettings};
+use piston_window::{self, EventLoop, Flip, PistonWindow, Size,
+                    Texture, UpdateEvent, Window, WindowSettings};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
+use gfx_device_gl;
 
 use error::BarError;
 
@@ -52,11 +54,11 @@ impl<T> ElemList for Elems<T> {
     }
 }
 
-
 pub struct Bar<T> {
     pub height: u32,
     pub window: PistonWindow,
     pub ui: conrod::Ui,
+    image_map: conrod::image::Map<piston_window::Texture<gfx_device_gl::Resources>>,
     lefts: Elems<T>,
     rights: Elems<T>,
 }
@@ -81,6 +83,7 @@ impl<T: 'static> Bar<T> {
 
         Bar {
             height: height,
+            image_map: conrod::image::Map::new(),
             lefts: Vec::new(),
             rights: Vec::new(),
             ui: conrod::UiBuilder::new().build(),
@@ -93,11 +96,22 @@ impl<T: 'static> Bar<T> {
         Ok(())
     }
 
-    pub fn animate_frame(mut self, locked: Arc<Mutex<T>>) {
+    pub fn load_icons(&mut self, path: &Path) -> Result<Id, BarError> {
+        print!("{:?}", path);
+        let texture;
+        {
+            let ref mut factory = self.window.factory;
+            let settings = piston_window::TextureSettings::new();
+            texture = Texture::from_path(factory, &path, Flip::None, &settings)?;
+        }
+        let id = self.gen_id();
 
-        // The image map describing each of our widget->image mappings
-        // (in our case, none).
-        let image_map = conrod::image::Map::new();
+        self.image_map.insert(id, texture);
+
+        Ok(id)
+    }
+
+    pub fn animate_frame(mut self, locked: Arc<Mutex<T>>) {
 
         // Write the requested widths into a section array. These widths
         // will be configurable but for now set to a default.
@@ -113,6 +127,7 @@ impl<T: 'static> Bar<T> {
         let ref mut window = self.window;
         let mut ui = self.ui;
         let mut elems: Elems<T> = self.lefts;
+        let image_map = self.image_map;
 
         // insert an unbound padding entry between rights and lefts
         elems.push(Elem::Spacer(Spacer {

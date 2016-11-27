@@ -46,16 +46,17 @@ impl Ipc {
     }
 }
 
-fn handle_client(mut stream: UnixStream, tx: mpsc::Sender<Message>) {
+fn build_event(msgtype: u32, payload: &str) -> Result<Message, Box<Error>> {
+    Ok(match msgtype {
+        c @ 0 ... 20 => return Err(From::from(
+            format!("reserved code range {}", c))),
+        21 => Message::Webpack(WebpackInfo::from_str(payload)?),
+        22 => Message::Unpark,
+        _ => unreachable!(),
+    })
+}
 
-    fn build_event(msgtype: u32, payload: &str) -> Result<Message, Box<Error>> {
-        Ok(match msgtype {
-            c @ 0 ... 20 => return Err(From::from(
-                format!("reserved code range {}", c))),
-            21 => Message::Webpack(WebpackInfo::from_str(payload)?),
-            _ => unreachable!(),
-        })
-    }
+fn handle_client(mut stream: UnixStream, tx: mpsc::Sender<Message>) {
 
     loop {
         match stream.receive_i3_message() {
