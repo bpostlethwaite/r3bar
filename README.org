@@ -16,3 +16,4 @@ CLOSED: [2016-11-27 Sun 00:00]
 ** TODO system tray
 ** TODO r3msg binary for easy msg'ing to rbar
 ** TODO Split out r3bar, r3msg, r3sensors, r3gauges and application that brings them together - r3.
+** TODO implement anybar spec

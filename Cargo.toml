@@ -1,6 +1,6 @@
 [package]
 name = "rubar"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["bpostlethwaite <post.ben.here@gmail.com>"]
 
 [dependencies]

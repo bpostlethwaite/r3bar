@@ -15,6 +15,7 @@ mod gauges;
 mod sensors;
 mod message;
 mod widgets;
+mod r3ipc;
 
 use conrod::color::{Color, self};
 use conrod::widget::{Id};
