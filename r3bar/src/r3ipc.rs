@@ -9,6 +9,11 @@ use unix_socket::UnixStream;
 
 pub const R3_UNIX_SOCK: &'static str = "/tmp/rubar.sock";
 
+pub const RESERVED: u32 = 20;
+pub const REPLY: u32 = 21;
+pub const UNPARK: u32 = 22;
+pub const WEBPACK: u32 = 23;
+
 pub trait R3Funcs {
     fn send_i3_message(&mut self, u32, &str) -> io::Result<()>;
     fn receive_i3_message(&mut self) -> io::Result<(u32, String)>;

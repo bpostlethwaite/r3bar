@@ -1,28 +1,16 @@
-extern crate byteorder;
-extern crate chrono;
-#[macro_use] extern crate conrod;
+extern crate conrod;
 extern crate i3ipc;
-extern crate piston_window;
-extern crate regex;
+extern crate r3bar;
 extern crate serde_json;
-extern crate unix_socket;
-extern crate gfx_device_gl;
 
-mod animate;
-mod bar;
-mod error;
-mod gauges;
-mod sensors;
 mod message;
-mod widgets;
-mod r3ipc;
 
-use conrod::color::{Color, self};
-use conrod::widget::{Id};
-use error::BarError;
-use gauges::icon_text;
+use conrod::color::{self, Color};
 use message::{Message, WebpackInfo};
-use sensors::wifi::WifiStatus;
+use r3bar::bar;
+use r3bar::error::BarError;
+use r3bar::gauges::{self, icon_text};
+use r3bar::sensors;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
@@ -56,7 +44,7 @@ struct BatteryIcons {
     none: icon_text::Icon,
 }
 
-struct VolumeIcons{
+struct VolumeIcons {
     high: icon_text::Icon,
     medium: icon_text::Icon,
     low: icon_text::Icon,
@@ -85,7 +73,7 @@ struct State {
     volume: Volume,
     i3: I3,
     webpack: WebpackInfo,
-    wifi: WifiStatus,
+    wifi: sensors::wifi::WifiStatus,
 }
 
 struct Store<T> {
@@ -95,8 +83,7 @@ struct Store<T> {
     volume_icons: VolumeIcons,
 }
 
-
-impl <T: 'static + Send>Store<T> {
+impl<T: 'static + Send> Store<T> {
     fn update(&self, msg: Message) {
 
         // unwrap is intentional. If a thread panics we want bring the system down.
@@ -104,8 +91,7 @@ impl <T: 'static + Send>Store<T> {
         match msg {
             Message::Time(time) => state.time = time,
 
-            Message::Battery( (capacity, _, ac) ) => {
-
+            Message::Battery((capacity, _, ac)) => {
                 match capacity.parse::<f64>() {
                     Ok(cap) => {
                         state.battery.capacity = cap;
@@ -113,15 +99,15 @@ impl <T: 'static + Send>Store<T> {
                             state.battery.icon = self.battery_icons.charging;
                         } else {
                             state.battery.icon = match cap {
-                                0.0 ... 5.0 => self.battery_icons.empty,
-                                5.0 ... 35.0 => self.battery_icons.low,
-                                35.0 ... 75.0 => self.battery_icons.half,
-                                75.0 ... 95.0 => self.battery_icons.charged,
-                                95.0 ... 100.0 => self.battery_icons.full,
+                                0.0...5.0 => self.battery_icons.empty,
+                                5.0...35.0 => self.battery_icons.low,
+                                35.0...75.0 => self.battery_icons.half,
+                                75.0...95.0 => self.battery_icons.charged,
+                                95.0...100.0 => self.battery_icons.full,
                                 _ => self.battery_icons.none,
                             }
                         }
-                    },
+                    }
 
                     Err(e) => {
                         println!("Battery capacity parse error {}", e);
@@ -129,7 +115,7 @@ impl <T: 'static + Send>Store<T> {
                         state.battery.icon = self.battery_icons.none;
                     }
                 }
-            },
+            }
 
             Message::Workspaces(workspaces) => {
                 let mut work_vec = Vec::new();
@@ -142,7 +128,7 @@ impl <T: 'static + Send>Store<T> {
                 }
 
                 state.i3.workspaces = work_vec;
-            },
+            }
 
             Message::I3Mode(mode) => {
                 if mode == "default" {
@@ -150,11 +136,13 @@ impl <T: 'static + Send>Store<T> {
                 } else {
                     state.i3.mode = mode;
                 }
-            },
+            }
 
-            Message::Unpark => for handle in self.handles.iter() {
-                handle.thread().unpark();
-            },
+            Message::Unpark => {
+                for handle in self.handles.iter() {
+                    handle.thread().unpark();
+                }
+            }
 
             Message::Wifi(status) => state.wifi = status,
 
@@ -166,21 +154,21 @@ impl <T: 'static + Send>Store<T> {
                         state.volume.percent = vol;
                         state.volume.icon = match vol {
                             0.0 => self.volume_icons.mute,
-                            0.0 ... 35.0 => self.volume_icons.low,
-                            35.0 ... 75.0 => self.volume_icons.medium,
-                            75.0 ... 100.0 => self.volume_icons.high,
+                            0.0...35.0 => self.volume_icons.low,
+                            35.0...75.0 => self.volume_icons.medium,
+                            75.0...100.0 => self.volume_icons.high,
                             _ => self.volume_icons.none,
                         }
-                    },
+                    }
                     Err(e) => {
                         println!("Volume parse error {}", e);
                         state.volume.percent = 0.;
                         state.volume.icon = self.volume_icons.none;
                     }
                 }
-            },
+            }
 
-            Message::Unlisten => return,
+            Message::Error(e) => println!("Msg Error: {}", e)
         };
     }
 
@@ -194,10 +182,6 @@ impl <T: 'static + Send>Store<T> {
                     Ok(msg) => msg,
                 };
 
-                if let Message::Unlisten = msg {
-                    break;
-                }
-
                 self.update(msg);
             }
         });
@@ -206,7 +190,7 @@ impl <T: 'static + Send>Store<T> {
     }
 }
 
-fn error_exit(error: error::BarError) {
+fn error_exit(error: BarError) {
     println!("{}", error);
     std::process::exit(1);
 }
@@ -228,9 +212,16 @@ fn main() {
 
     let bpath = |p| bat_path.join(p);
     let vpath = |p| vol_path.join(p);
-    let ic = |id| icon_text::Icon{w: 24.0, h: 24.0, id: id, padding: 0.0};
+    let ic = |id| {
+        icon_text::Icon {
+            w: 24.0,
+            h: 24.0,
+            id: id,
+            padding: 0.0,
+        }
+    };
 
-    let battery_icons = BatteryIcons{
+    let battery_icons = BatteryIcons {
         charged: ic(rubar.load_icons(&bpath("charged-battery.png")).unwrap()),
         charging: ic(rubar.load_icons(&bpath("charging-battery.png")).unwrap()),
         empty: ic(rubar.load_icons(&bpath("empty-battery.png")).unwrap()),
@@ -240,7 +231,7 @@ fn main() {
         none: ic(rubar.load_icons(&bpath("no-battery.png")).unwrap()),
     };
 
-    let volume_icons = VolumeIcons{
+    let volume_icons = VolumeIcons {
         high: ic(rubar.load_icons(&vpath("high-volume.png")).unwrap()),
         medium: ic(rubar.load_icons(&vpath("medium-volume.png")).unwrap()),
         low: ic(rubar.load_icons(&vpath("low-volume.png")).unwrap()),
@@ -260,15 +251,15 @@ fn main() {
     let systime = sensors::systime::SysTime::new(Duration::from_millis(100));
     let battery = sensors::battery::Battery::new(Duration::from_millis(5000));
     let volume = sensors::volume::Volume::new(Duration::from_millis(10000));
-    let ipc = sensors::ipc::Ipc::new();
 
     // Bind sensors to the Message enum
     if let Err(e) = || -> Result<(), BarError> {
-        ipc.run(tx.clone())?;
+        sensors::ipc::Ipc::new()?.run(tx.clone(), Message::from)?;
         systime.run(tx.clone(), Message::Time)?;
         i3workspace.run(tx.clone(), Message::Workspaces, Message::I3Mode)?;
         battery.run(tx.clone(), Message::Battery)?;
-        sensors::wifi::ConfigureWifi::new()?.configure()
+        sensors::wifi::ConfigureWifi::new()?
+            .configure()
             .run(tx.clone(), Message::Wifi)?;
         volume.run(tx.clone(), Message::Volume)?;
         Ok(())
@@ -283,39 +274,33 @@ fn main() {
     };
 
     // set up gauges to display sensor data
-    let time_widget = gauges::icon_text::IconText::new(
-        rubar.ui.widget_id_generator());
+    let time_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
 
-    let battery_widget = gauges::icon_text::IconText::new(
-        rubar.ui.widget_id_generator());
+    let battery_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
 
-    let wifi_widget = gauges::icon_text::IconText::new(
-        rubar.ui.widget_id_generator());
+    let wifi_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
 
-    let workspace_widget = gauges::button_row::ButtonRow::new(
-        30, BASE03, MAGENTA, rubar.ui.widget_id_generator()
-    );
+    let workspace_widget =
+        gauges::button_row::ButtonRow::new(30, BASE03, MAGENTA, rubar.ui.widget_id_generator());
 
-    let redkitt = gauges::redkitt::RedKitt::new(
-        rubar.ui.widget_id_generator());
+    let redkitt = gauges::redkitt::RedKitt::new(rubar.ui.widget_id_generator());
 
-    let volume_widget = gauges::icon_text::IconText::new(
-        rubar.ui.widget_id_generator());
+    let volume_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
 
 
     let state = Arc::new(Mutex::new(State {
         time: "".to_string(),
-        battery: Battery{
+        battery: Battery {
             capacity: -1.0,
             icon: battery_icons.none,
         },
-        i3: I3{
+        i3: I3 {
             mode: "".to_string(),
             workspaces: Vec::new(),
         },
         webpack: WebpackInfo::Done,
-        wifi: WifiStatus::new(53.),
-        volume: Volume{
+        wifi: sensors::wifi::WifiStatus::new(53.),
+        volume: Volume {
             percent: 0.,
             icon: volume_icons.none,
         },

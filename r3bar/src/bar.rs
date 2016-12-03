@@ -97,7 +97,6 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn load_icons(&mut self, path: &Path) -> Result<Id, BarError> {
-        print!("{:?}", path);
         let texture;
         {
             let ref mut factory = self.window.factory;
@@ -160,7 +159,7 @@ impl<T: 'static> Bar<T> {
                 // their requested lengths until fit. <not implemented>
                 let req_width = elems.width();
                 if req_width > win_width {
-                    panic!("requested gauge widths greater than bar width")
+                    println!("requested gauge widths greater than bar width")
                 }
 
                 // Next increase the spacer width to take up remaining space

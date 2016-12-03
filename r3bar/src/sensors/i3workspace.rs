@@ -4,7 +4,7 @@ use i3ipc::Subscription;
 use i3ipc::event::Event;
 use i3ipc::reply::Workspace;
 use std::error::Error;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{Sender};
 use std::{thread};
 
 pub struct I3Workspace {}

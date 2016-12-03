@@ -1,0 +1,10 @@
+[package]
+name = "r3msg"
+version = "0.1.0"
+authors = ["bpostlethwaite <post.ben.here@gmail.com>"]
+
+[dependencies]
+unix_socket = "0.5.0"
+i3ipc = "0.4.2"
+serde_json = "0.8.2"
+r3bar = { path = "../r3bar" }
