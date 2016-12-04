@@ -1,40 +1,36 @@
 use chrono::Local;
-use std::error::Error;
-use std::marker::Send;
+use message::Message;
+use sensors::{Sensor, SensorResult};
 use std::sync::mpsc;
 use std::time::Duration;
-use std::{result, thread};
+use std::{thread};
 
 pub struct SysTime {
     pub interval: Duration
 }
 
-type RunResult = result::Result<(), Box<Error>>;
-
 impl SysTime {
-
     pub fn new(interval: Duration) -> SysTime {
         SysTime{interval: interval}
     }
+}
 
-    pub fn run<F, T: 'static + Send>(&self, tx: mpsc::Sender<T>, f: F) -> RunResult
-        where F: 'static + Send + Fn(String) -> T
-    {
+impl Sensor for SysTime {
+
+    fn run(&self, tx: mpsc::Sender<Message>) -> SensorResult {
         let iv = self.interval;
 
-        thread::spawn(move || {
+        Ok(thread::spawn(move || {
             loop {
                 let dt = Local::now();
                 let time_str = dt.format("%Y-%m-%d %H:%M:%S").to_string();
 
-                if let Err(e) = tx.send(f(time_str)) {
+                if let Err(e) = tx.send(Message::Time(time_str)) {
                     println!("SysTime ERROR: {}", e); // TODO Logging?
                 }
 
-                thread::sleep(iv);
+                thread::park_timeout(iv);
             }
-        });
-
-        Ok(())
+        }))
     }
 }

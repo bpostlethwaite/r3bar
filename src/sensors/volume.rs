@@ -1,10 +1,11 @@
-use std::error::Error;
+use error::BarError;
+use sensors;
+use message::Message;
 use std::process::Command;
 use std::str::from_utf8;
-use std::sync::mpsc::{Sender};
-use std::time::Duration;
+use std::sync::mpsc;
 use std::thread;
-use error::BarError;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct Volume {
@@ -16,20 +17,18 @@ impl Volume {
     pub fn new(interval: Duration) -> Self {
         Volume{interval: interval}
     }
+}
 
-    pub fn run<T, F>(&self, tx: Sender<T>, f: F) -> Result<thread::JoinHandle<T>, Box<Error>>
-        where F: 'static + Send + Fn(String) -> T,
-              T: 'static + Send
-    {
+impl sensors::Sensor for Volume {
+    fn run(&self, tx: mpsc::Sender<Message>) -> sensors::SensorResult {
 
         let iv = self.interval;
-        tx.send(f(get_volume()?))?;
+        tx.send(Message::Volume(get_volume()?)).unwrap();
 
         Ok(thread::spawn(move || {
-
             loop {
                 if let Err(e) = get_volume().map_err(|e| e.to_string())
-                    .and_then(|vol| tx.send(f(vol)).map_err(|e| e.to_string())) {
+                    .and_then(|vol| tx.send(Message::Volume(vol)).map_err(|e| e.to_string())) {
                         println!("volume sensor ERROR: {}", e);
                     }
 

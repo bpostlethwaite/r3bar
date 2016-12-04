@@ -1,11 +1,12 @@
 extern crate r3bar;
 extern crate conrod;
 
+
 use conrod::color::{self, Color};
 use r3bar::error::BarError;
 use r3bar::bar;
 use r3bar::gauges::{self, icon_text};
-use r3bar::sensors::{self};
+use r3bar::sensors::{self, Sensor};
 use r3bar::message::{Message, WebpackInfo};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
@@ -77,14 +78,16 @@ struct State {
     wifi: r3bar::sensors::wifi::WifiStatus,
 }
 
-struct Store<T> {
+struct Store {
+    tx: mpsc::Sender<Message>,
+    rx: mpsc::Receiver<Message>,
     state: Arc<Mutex<State>>,
-    handles: Vec<thread::JoinHandle<T>>,
+    handles: Vec<thread::JoinHandle<Result<(), BarError>>>,
     battery_icons: BatteryIcons,
     volume_icons: VolumeIcons,
 }
 
-impl<T: 'static + Send> Store<T> {
+impl Store {
     fn update(&self, msg: Message) {
 
         // unwrap is intentional. If a thread panics we want bring the system down.
@@ -173,12 +176,22 @@ impl<T: 'static + Send> Store<T> {
         };
     }
 
-    fn listen(self, rx: mpsc::Receiver<Message>) -> thread::JoinHandle<()> {
+    fn register<S: Sensor>(&mut self, sensor: &S) {
+        match sensor.run(self.tx.clone()) {
+            Ok(handle) => self.handles.push(handle),
+            Err(e) => {
+                println!("{}", e);
+                std::process::exit(1);
+            },
+        }
+    }
+
+    fn listen(self) -> thread::JoinHandle<()> {
         let listener = thread::spawn(move || {
             loop {
 
                 // channels will throw an error when the other ends disconnect.
-                let msg = match rx.recv() {
+                let msg = match self.rx.recv() {
                     Err(_) => break, // LOGGING error/disconnect?
                     Ok(msg) => msg,
                 };
@@ -191,14 +204,9 @@ impl<T: 'static + Send> Store<T> {
     }
 }
 
-fn error_exit(error: BarError) {
-    println!("{}", error);
-    std::process::exit(1);
-}
-
 fn main() {
 
-    let (tx, rx) = mpsc::channel();
+
 
     // instantiate a our system
     let mut rubar = r3bar::bar::Bar::new(BAR_HEIGHT);
@@ -247,47 +255,9 @@ fn main() {
     rubar.ui.theme.border_color = BASE02;
     rubar.ui.theme.font_size_medium = 14;
 
-    // set up the sensors
-    let i3workspace = sensors::i3workspace::I3Workspace::new();
-    let systime = sensors::systime::SysTime::new(Duration::from_millis(100));
-    let battery = sensors::battery::Battery::new(Duration::from_millis(5000));
-    let volume = sensors::volume::Volume::new(Duration::from_millis(10000));
 
-    // Bind sensors to the Message enum
-    if let Err(e) = || -> Result<(), BarError> {
-        sensors::ipc::Ipc::new()?.run(tx.clone(), Message::from)?;
-        systime.run(tx.clone(), Message::Time)?;
-        i3workspace.run(tx.clone(), Message::Workspaces, Message::I3Mode)?;
-        battery.run(tx.clone(), Message::Battery)?;
-        sensors::wifi::ConfigureWifi::new()?
-            .configure()
-            .run(tx.clone(), Message::Wifi)?;
-        volume.run(tx.clone(), Message::Volume)?;
-        Ok(())
-    }() {
-        // if any sensors fail bail.
-        error_exit(e);
-    }
 
-    let thread = match volume.run(tx.clone(), Message::Volume) {
-        Err(_) => return (),
-        Ok(thread) => thread,
-    };
-
-    // set up gauges to display sensor data
-    let time_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
-
-    let battery_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
-
-    let wifi_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
-
-    let workspace_widget =
-        gauges::button_row::ButtonRow::new(30, BASE03, MAGENTA, rubar.ui.widget_id_generator());
-
-    let redkitt = gauges::redkitt::RedKitt::new(rubar.ui.widget_id_generator());
-
-    let volume_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
-
+    let (tx, rx) = mpsc::channel();
 
     let state = Arc::new(Mutex::new(State {
         time: "".to_string(),
@@ -307,14 +277,50 @@ fn main() {
         },
     }));
 
+
     // set up our store and start listening
-    let store = Store {
+    let mut store = Store {
+        rx: rx,
+        tx: tx.clone(),
         state: state.clone(),
-        handles: vec![thread],
+        handles: Vec::new(),
         battery_icons: battery_icons,
         volume_icons: volume_icons,
     };
-    store.listen(rx);
+
+
+    // set up the sensors
+    let i3workspace = sensors::i3workspace::I3Workspace::new();
+    let systime = sensors::systime::SysTime::new(Duration::from_millis(100));
+    let battery = sensors::battery::Battery::new(Duration::from_millis(5000));
+    let volume = sensors::volume::Volume::new(Duration::from_millis(10000));
+    let ipc = sensors::ipc::Ipc::new().unwrap();
+    let wifi = sensors::wifi::ConfigureWifi::new().unwrap().configure();
+
+    store.register(&volume);
+    store.register(&systime);
+    store.register(&ipc);
+    store.register(&i3workspace);
+    store.register(&battery);
+    store.register(&wifi);
+
+    store.listen();
+
+
+    // set up gauges to display sensor data
+    let time_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+
+    let battery_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+
+    let wifi_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+
+    let workspace_widget =
+        gauges::button_row::ButtonRow::new(30, BASE03, MAGENTA, rubar.ui.widget_id_generator());
+
+    let redkitt = gauges::redkitt::RedKitt::new(rubar.ui.widget_id_generator());
+
+    let volume_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+
 
     // bind widgets to our store state and call animate_frame to
     // start the render loop.

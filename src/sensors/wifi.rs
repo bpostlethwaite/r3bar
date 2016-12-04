@@ -2,7 +2,8 @@
 // @original author Markus Weimar <mail@markusweimar.de>
 // @license BSD
 //
-
+use message::Message;
+use sensors::{Sensor, SensorResult};
 use regex::Regex;
 use std::error::Error;
 use std::process::Command;
@@ -111,18 +112,15 @@ pub struct Wifi {
     max_bitrate: f64,
 }
 
-impl Wifi {
-    pub fn run<T, F>(&self, tx: Sender<T>, f: F) -> Result<(), Box<Error>>
-        where F: 'static + Send + Fn(WifiStatus) -> T,
-              T: 'static + Send
-    {
+impl Sensor for Wifi {
+    fn run(&self, tx: Sender<Message>) -> SensorResult {
 
         let iv = self.interval;
         let dev = self.device.clone();
         let ip = self.ip;
         let degraded = self.bitrate_degraded;
 
-        thread::spawn(move || {
+        Ok(thread::spawn(move || {
 
             // send a snapshot of current workspace immediately
             let mut last_status = WifiStatus::new(degraded);
@@ -133,16 +131,14 @@ impl Wifi {
                     dev.clone(), ip, degraded, last_status.clone())
                     .and_then(|status| {
                         last_status = status.clone();
-                        tx.send(f(status)).map_err(|e| From::from(e))
+                        tx.send(Message::Wifi(status)).map_err(|e| From::from(e))
                     }) {
                         println!("wifistatus ERROR: {}", e); // TODO LOGGING
                     }
 
                 thread::sleep(iv);
             }
-        });
-
-        Ok(())
+        }))
     }
 }
 

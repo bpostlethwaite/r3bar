@@ -1,8 +1,6 @@
 use error::BarError;
-use sensors::ipc::R3Msg;
 use i3ipc::reply::Workspace;
 use sensors::wifi::WifiStatus;
-use r3ipc;
 use serde_json as json;
 use std::str::FromStr;
 
@@ -18,25 +16,6 @@ pub enum Message {
     Webpack(WebpackInfo),
     Wifi(WifiStatus),
     Workspaces(Vec<Workspace>),
-}
-
-impl From<R3Msg> for Message {
-    fn from(r3msg: R3Msg) -> Message {
-
-        match || -> Result<Message, BarError> {
-            Ok(match r3msg.msgtype {
-                c @ 0...r3ipc::RESERVED => Message::Error(
-                    format!("R3Msg: reserved code range {}", c)),
-                r3ipc::WEBPACK => Message::Webpack(WebpackInfo::from_str(&r3msg.payload)?),
-                r3ipc::UNPARK => Message::Unpark,
-                _ => Message::Error(
-                    format!("R3Msg: msgtype '{}' not implemented", r3msg.msgtype)),
-            })
-        }() {
-            Ok(message) => message,
-            Err(errmsg) => Message::Error(errmsg.to_string()),
-        }
-    }
 }
 
 
