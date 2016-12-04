@@ -1,8 +1,8 @@
-use r3bar::error::BarError;
-use r3bar::sensors::ipc::R3Msg;
+use error::BarError;
+use sensors::ipc::R3Msg;
 use i3ipc::reply::Workspace;
-use r3bar::sensors::wifi::WifiStatus;
-use r3bar::r3ipc;
+use sensors::wifi::WifiStatus;
+use r3ipc;
 use serde_json as json;
 use std::str::FromStr;
 

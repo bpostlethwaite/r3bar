@@ -4,7 +4,7 @@ use std::fmt;
 use std::io;
 use std::str;
 use serde_json::error::{Error as JsonError};
-use std::sync::mpsc::SendError;
+
 
 #[derive(Debug)]
 pub enum BarError {

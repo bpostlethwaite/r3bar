@@ -7,7 +7,7 @@ use r3ipc::{R3Funcs, R3_UNIX_SOCK, self};
 
 
 pub struct Ipc {
-    socket: UnixListener,
+    pub socket: UnixListener,
 }
 
 pub struct R3Msg {
@@ -54,7 +54,6 @@ impl Ipc {
 }
 
 
-
 fn handle_client<T, F>(mut stream: UnixStream, tx: mpsc::Sender<T>, f: F)
         where F: 'static + Send + Fn(R3Msg) -> T,
               T: 'static + Send,
@@ -90,7 +89,7 @@ fn handle_client<T, F>(mut stream: UnixStream, tx: mpsc::Sender<T>, f: F)
                 // reconnect
                 println!("ipc COMMAND ERROR: {}", e);
                 break;
-            },
+             },
         }
     }
 }

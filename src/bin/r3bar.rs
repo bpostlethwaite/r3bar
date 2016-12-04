@@ -1,16 +1,12 @@
-extern crate conrod;
-extern crate i3ipc;
 extern crate r3bar;
-extern crate serde_json;
-
-mod message;
+extern crate conrod;
 
 use conrod::color::{self, Color};
-use message::{Message, WebpackInfo};
-use r3bar::bar;
 use r3bar::error::BarError;
+use r3bar::bar;
 use r3bar::gauges::{self, icon_text};
-use r3bar::sensors;
+use r3bar::sensors::{self};
+use r3bar::message::{Message, WebpackInfo};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
@@ -25,14 +21,19 @@ static VOLUME_PATH: &'static str = "programming/rubar/assets/icons/volume";
 const BASE03: Color = Color::Rgba(0., 0.168627, 0.211764, 1.);
 const BASE02: Color = Color::Rgba(0.027450, 0.211764, 0.258823, 1.);
 const BASE01: Color = Color::Rgba(0.345098, 0.431372, 0.458823, 1.);
+#[allow(dead_code)]
 const BASE00: Color = Color::Rgba(0.396078, 0.482352, 0.513725, 1.);
 const BASE0: Color = Color::Rgba(0.513725, 0.580392, 0.588235, 1.);
+#[allow(dead_code)]
 const BASE1: Color = Color::Rgba(0.576470, 0.631372, 0.631372, 1.);
+#[allow(dead_code)]
 const CYAN: Color = Color::Rgba(0.164705, 0.631372, 0.596078, 1.);
+#[allow(dead_code)]
 const ORANGE: Color = Color::Rgba(0.796078, 0.294117, 0.086274, 1.);
 const MAGENTA: Color = Color::Rgba(0.827450, 0.211764, 0.509803, 1.);
 
-const HEIGHT: u32 = 26;
+
+const BAR_HEIGHT: u32 = 26;
 
 struct BatteryIcons {
     charged: icon_text::Icon,
@@ -73,7 +74,7 @@ struct State {
     volume: Volume,
     i3: I3,
     webpack: WebpackInfo,
-    wifi: sensors::wifi::WifiStatus,
+    wifi: r3bar::sensors::wifi::WifiStatus,
 }
 
 struct Store<T> {
@@ -200,7 +201,7 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     // instantiate a our system
-    let mut rubar = bar::Bar::new(HEIGHT);
+    let mut rubar = r3bar::bar::Bar::new(BAR_HEIGHT);
 
     // load up some assets
     let home = env::home_dir().unwrap();
@@ -269,7 +270,7 @@ fn main() {
     }
 
     let thread = match volume.run(tx.clone(), Message::Volume) {
-        Err(e) => return (),
+        Err(_) => return (),
         Ok(thread) => thread,
     };
 
@@ -411,8 +412,4 @@ fn main() {
 
 fn dbm_to_percent(dbm: f64) -> f64 {
     2. * (dbm + 100.)
-}
-
-fn percent_to_dbm(percent: f64) -> f64 {
-    (percent / 2.) - 100.
 }

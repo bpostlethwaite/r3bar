@@ -1,11 +1,7 @@
-extern crate i3ipc;
 extern crate r3bar;
-extern crate serde_json;
-extern crate unix_socket;
+extern crate i3ipc;
 
-mod r3msg;
-
-use r3msg::{R3Msg};
+use r3bar::r3ipc::{R3Msg};
 use std::env;
 
 fn help() {
@@ -38,7 +34,7 @@ fn main() {
 
             match cmd.parse::<u32>() {
                 Ok(msgtype) => send(msgtype, payload),
-                Err(e) => return help(),
+                Err(_) => return help(),
             }
         },
 

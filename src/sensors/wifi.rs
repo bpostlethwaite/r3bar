@@ -7,7 +7,7 @@ use regex::Regex;
 use std::error::Error;
 use std::process::Command;
 use std::str::from_utf8;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{Sender};
 use std::time::Duration;
 use std::thread;
 

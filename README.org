@@ -14,6 +14,5 @@ CLOSED: [2016-11-27 Sun 00:00]
 ** TODO adjustable widget sizing (draggable)
 ** TODO Popup window (first use for debugging)
 ** TODO system tray
-** TODO r3msg binary for easy msg'ing to rbar
-** TODO Split out r3bar, r3msg, r3sensors, r3gauges and application that brings them together - r3.
 ** TODO implement anybar spec
+** TODO Sensors write [r3msg r3ipc src]
