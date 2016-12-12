@@ -1,4 +1,3 @@
-pub use animate;
 pub use bar;
 pub use error;
 pub use gauges;

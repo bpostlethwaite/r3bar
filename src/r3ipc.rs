@@ -11,7 +11,6 @@ use std::fmt;
 use std::io::{Read, Write, self};
 use unix_socket::UnixStream;
 
-
 pub const R3_UNIX_SOCK: &'static str = "/tmp/rubar.sock";
 
 pub const RESERVED: u32 = 20;
@@ -66,8 +65,10 @@ pub struct R3Msg {
 
 impl R3Msg {
 
-    pub fn new() -> Result<Self, io::Error> {
-        UnixStream::connect(R3_UNIX_SOCK).map(|stream| R3Msg{stream: stream})
+    pub fn new(socket_path: Option<&str>) -> Result<Self, io::Error> {
+
+        let socket_path = socket_path.unwrap_or(R3_UNIX_SOCK);
+        UnixStream::connect(socket_path).map(|stream| R3Msg{stream: stream})
     }
 
     pub fn send_msg(&mut self, msgtype: u32, payload: &str) -> Result<reply::Command, MessageError> {

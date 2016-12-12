@@ -28,7 +28,8 @@ impl sensors::Sensor for Volume {
         Ok(thread::spawn(move || {
             loop {
                 if let Err(e) = get_volume().map_err(|e| e.to_string())
-                    .and_then(|vol| tx.send(Message::Volume(vol)).map_err(|e| e.to_string())) {
+                    .and_then(|vol| tx.send(Message::Volume(vol))
+                              .map_err(|e| e.to_string())) {
                         println!("volume sensor ERROR: {}", e);
                     }
 

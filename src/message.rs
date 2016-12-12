@@ -9,7 +9,7 @@ use std::str::FromStr;
 pub enum Message {
     Battery((String, String, String)),
     I3Mode(String),
-    Error(String),
+    Error(BarError),
     Time(String),
     Unpark,
     Volume(String),

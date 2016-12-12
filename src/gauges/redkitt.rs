@@ -4,12 +4,9 @@ use conrod::widget::{Id};
 
 use widgets;
 
-use animate::{Animate};
-
 pub struct RedKitt {
     pub kitt_id: conrod::widget::Id,
     color_grad: Vec<Color>,
-    animate: Animate
 }
 
 impl RedKitt {
@@ -26,26 +23,16 @@ impl RedKitt {
                 Color::Rgba(1., 0., 0., 0.00),
                 Color::Rgba(1., 0., 0., 0.00),
             ],
-            animate: Animate::new(),
         }
     }
 
-    pub fn render(&self, do_animate: bool, slot_id: Id, mut ui: &mut conrod::UiCell) -> Option<()> {
-
-        {
-            let mut animator = self.animate;
-            animator.next_frame();
-        }
-
-        let animator = match do_animate {
-            true => Some(self.animate),
-            false => None,
-        };
+    pub fn render(&self, animate: bool, slot_id: Id, mut ui: &mut conrod::UiCell, dt: Option<f64>) -> Option<()> {
 
         widgets::kitt::Kitt::new(&self.color_grad)
             .wh_of(slot_id)
             .padding(4.0)
-            .animate(animator)
+            .dt(dt)
+            .animate(animate)
             .middle_of(slot_id)
             .set(self.kitt_id, ui)
     }

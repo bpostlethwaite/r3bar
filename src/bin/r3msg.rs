@@ -47,7 +47,7 @@ fn main() {
 }
 
 fn send(msgtype: u32, payload: &str) {
-    match R3Msg::new().unwrap().send_msg(msgtype, payload) {
+    match R3Msg::new(None).unwrap().send_msg(msgtype, payload) {
         Ok(i3ipc::reply::Command{outcomes}) => println!("{:?}", outcomes),
         Err(e) => println!("{}", e)
     }

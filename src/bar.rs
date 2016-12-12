@@ -2,7 +2,7 @@ use conrod::backend::piston_window::GlyphCache;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
 use piston_window::{self, EventLoop, Flip, PistonWindow, Size,
-                    Texture, UpdateEvent, Window, WindowSettings};
+                    Texture, UpdateArgs, UpdateEvent, Window, WindowSettings};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use gfx_device_gl;
@@ -17,7 +17,7 @@ const WIDTH: u32 = 200; // this is overridden to be screen width
 
 
 struct Gauge<T> {
-    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell)>,
+    bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)>,
     width: u32,
     id: Id,
 }
@@ -62,10 +62,6 @@ pub struct Bar<T> {
     lefts: Elems<T>,
     rights: Elems<T>,
 }
-
-// NOTE INSTEAD OF OPTION binder field use an ENUM in the lefts and rights
-// vecs. could be type GAUGE, SPACER and maybe SEPERATOR
-
 
 impl<T: 'static> Bar<T> {
     pub fn new(height: u32) -> Bar<T> {
@@ -192,10 +188,13 @@ impl<T: 'static> Bar<T> {
                 // Unlock state so all binder functions may mutate.
                 let state = locked.lock().unwrap(); // TODO
 
+
+                let dt = event.update_args().map(|updt| updt.dt);
+
                 // call the bind functions on each Gauge
                 for elem in elems.iter() {
                     if let &Elem::Gauge(Gauge { id, ref bind, .. }) = elem {
-                        bind(&state, id, &mut ui);
+                        bind(&state, id, &mut ui, dt);
                     }
                 }
             });
@@ -225,7 +224,7 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn bind_left<F>(mut self, width: Width, bind: F) -> Bar<T>
-        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
+        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)
     {
         let id = self.gen_id();
 
@@ -239,7 +238,7 @@ impl<T: 'static> Bar<T> {
     }
 
     pub fn bind_right<F>(mut self, width: Width, bind: F) -> Bar<T>
-        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell)
+        where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)
     {
         let id = self.gen_id();
 

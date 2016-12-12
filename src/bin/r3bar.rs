@@ -14,10 +14,10 @@ use std::time::Duration;
 use std::{env, thread};
 
 
-static FONT_PATH: &'static str = "programming/rubar/assets/fonts/Roboto Mono for Powerline.ttf";
+static FONT_PATH: &'static str = "programming/r3bar/assets/fonts/Roboto Mono for Powerline.ttf";
 
-static BATTERY_PATH: &'static str = "programming/rubar/assets/icons/battery";
-static VOLUME_PATH: &'static str = "programming/rubar/assets/icons/volume";
+static BATTERY_PATH: &'static str = "programming/r3bar/assets/icons/battery";
+static VOLUME_PATH: &'static str = "programming/r3bar/assets/icons/volume";
 
 const BASE03: Color = Color::Rgba(0., 0.168627, 0.211764, 1.);
 const BASE02: Color = Color::Rgba(0.027450, 0.211764, 0.258823, 1.);
@@ -206,10 +206,8 @@ impl Store {
 
 fn main() {
 
-
-
     // instantiate a our system
-    let mut rubar = r3bar::bar::Bar::new(BAR_HEIGHT);
+    let mut r3b = r3bar::bar::Bar::new(BAR_HEIGHT);
 
     // load up some assets
     let home = env::home_dir().unwrap();
@@ -217,7 +215,7 @@ fn main() {
     let bat_path = home.join(Path::new(BATTERY_PATH));
     let vol_path = home.join(Path::new(VOLUME_PATH));
 
-    rubar.set_fonts(&font_path).unwrap();
+    r3b.set_fonts(&font_path).unwrap();
 
     let bpath = |p| bat_path.join(p);
     let vpath = |p| vol_path.join(p);
@@ -231,29 +229,29 @@ fn main() {
     };
 
     let battery_icons = BatteryIcons {
-        charged: ic(rubar.load_icons(&bpath("charged-battery.png")).unwrap()),
-        charging: ic(rubar.load_icons(&bpath("charging-battery.png")).unwrap()),
-        empty: ic(rubar.load_icons(&bpath("empty-battery.png")).unwrap()),
-        full: ic(rubar.load_icons(&bpath("full-battery.png")).unwrap()),
-        half: ic(rubar.load_icons(&bpath("half-charged-battery.png")).unwrap()),
-        low: ic(rubar.load_icons(&bpath("low-battery.png")).unwrap()),
-        none: ic(rubar.load_icons(&bpath("no-battery.png")).unwrap()),
+        charged: ic(r3b.load_icons(&bpath("charged-battery.png")).unwrap()),
+        charging: ic(r3b.load_icons(&bpath("charging-battery.png")).unwrap()),
+        empty: ic(r3b.load_icons(&bpath("empty-battery.png")).unwrap()),
+        full: ic(r3b.load_icons(&bpath("full-battery.png")).unwrap()),
+        half: ic(r3b.load_icons(&bpath("half-charged-battery.png")).unwrap()),
+        low: ic(r3b.load_icons(&bpath("low-battery.png")).unwrap()),
+        none: ic(r3b.load_icons(&bpath("no-battery.png")).unwrap()),
     };
 
     let volume_icons = VolumeIcons {
-        high: ic(rubar.load_icons(&vpath("high-volume.png")).unwrap()),
-        medium: ic(rubar.load_icons(&vpath("medium-volume.png")).unwrap()),
-        low: ic(rubar.load_icons(&vpath("low-volume.png")).unwrap()),
-        mute: ic(rubar.load_icons(&vpath("mute-volume.png")).unwrap()),
-        none: ic(rubar.load_icons(&vpath("no-audio.png")).unwrap()),
+        high: ic(r3b.load_icons(&vpath("high-volume.png")).unwrap()),
+        medium: ic(r3b.load_icons(&vpath("medium-volume.png")).unwrap()),
+        low: ic(r3b.load_icons(&vpath("low-volume.png")).unwrap()),
+        mute: ic(r3b.load_icons(&vpath("mute-volume.png")).unwrap()),
+        none: ic(r3b.load_icons(&vpath("no-audio.png")).unwrap()),
     };
 
     // change the default theme.
-    rubar.ui.theme.background_color = BASE03;
-    rubar.ui.theme.label_color = BASE0;
-    rubar.ui.theme.padding = conrod::Padding::none();
-    rubar.ui.theme.border_color = BASE02;
-    rubar.ui.theme.font_size_medium = 14;
+    r3b.ui.theme.background_color = BASE03;
+    r3b.ui.theme.label_color = BASE0;
+    r3b.ui.theme.padding = conrod::Padding::none();
+    r3b.ui.theme.border_color = BASE02;
+    r3b.ui.theme.font_size_medium = 14;
 
 
 
@@ -294,7 +292,7 @@ fn main() {
     let systime = sensors::systime::SysTime::new(Duration::from_millis(100));
     let battery = sensors::battery::Battery::new(Duration::from_millis(5000));
     let volume = sensors::volume::Volume::new(Duration::from_millis(10000));
-    let ipc = sensors::ipc::Ipc::new().unwrap();
+    let ipc = sensors::ipc::Ipc::new(None).unwrap();
     let wifi = sensors::wifi::ConfigureWifi::new().unwrap().configure();
 
     store.register(&volume);
@@ -308,28 +306,28 @@ fn main() {
 
 
     // set up gauges to display sensor data
-    let time_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+    let time_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
 
-    let battery_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+    let battery_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
 
-    let wifi_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+    let wifi_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
 
     let workspace_widget =
-        gauges::button_row::ButtonRow::new(30, BASE03, MAGENTA, rubar.ui.widget_id_generator());
+        gauges::button_row::ButtonRow::new(30, BASE03, MAGENTA, r3b.ui.widget_id_generator());
 
-    let redkitt = gauges::redkitt::RedKitt::new(rubar.ui.widget_id_generator());
+    let redkitt = gauges::redkitt::RedKitt::new(r3b.ui.widget_id_generator());
 
-    let volume_widget = gauges::icon_text::IconText::new(rubar.ui.widget_id_generator());
+    let volume_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
 
 
     // bind widgets to our store state and call animate_frame to
     // start the render loop.
-    rubar
+    r3b
 
     // TIME
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH + 10,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 time_widget.render(icon_text::Opts{
                     maybe_icon: None,
@@ -341,7 +339,7 @@ fn main() {
     // BATTERY
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
                 battery_widget.render(icon_text::Opts{
                     maybe_icon: Some(state.battery.icon),
                     maybe_text: Some(&format!("{}%", state.battery.capacity)),
@@ -351,7 +349,7 @@ fn main() {
     // VOLUME
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 volume_widget.render(icon_text::Opts{
                     maybe_icon: Some(state.volume.icon),
@@ -363,7 +361,7 @@ fn main() {
     // WIFI
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 let ssid = state.wifi.ssid.clone()
                     .unwrap_or("unconnected".to_string());
@@ -381,14 +379,13 @@ fn main() {
     // WEBPACK SENSOR
         .bind_right(
             bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, dt| {
 
                 let do_animate = match state.webpack {
                     WebpackInfo::Compile => true,
                     _ => false,
                 };
-
-                if let Some(_) = redkitt.render(do_animate, slot_id, ui_widgets) {
+                if let Some(_) = redkitt.render(animate, slot_id, ui_widgets, dt) {
                     if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
                         println!("{}", e); // logging
                     }
@@ -398,7 +395,7 @@ fn main() {
     // I3 WORKSPACES
         .bind_left(
             bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets| {
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
                 if let Some(ibtn) = workspace_widget
                     .render(

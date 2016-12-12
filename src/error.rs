@@ -16,7 +16,6 @@ pub enum BarError {
     I3Establish(i3ipc::EstablishError),
     I3Message(i3ipc::MessageError),
     Bar(String),
-    // Box(Box<Error>),
 }
 
 impl fmt::Display for BarError {
@@ -30,7 +29,6 @@ impl fmt::Display for BarError {
                 f, "I3 message error: {}", err),
             BarError::Font(ref err) => write!(f, "Font error: {}", err),
             BarError::Utf8(ref err) => write!(f, "Utf8 error: {}", err),
-            // BarError::Box(ref err) => write!(f, "Boxed error: {}", err),
             BarError::Bar(ref err) => write!(f, "Bar error: {}", err),
         }
     }
@@ -45,7 +43,6 @@ impl error::Error for BarError {
             BarError::I3Message(ref err) => err.description(),
             BarError::Font(ref err) => err.description(),
             BarError::Utf8(ref err) => err.description(),
-            // BarError::Box(ref err) => err.description(),
             BarError::Bar(ref err) => err,
         }
     }
@@ -58,7 +55,6 @@ impl error::Error for BarError {
             BarError::I3Message(ref err) => Some(err),
             BarError::Font(ref err) => Some(err),
             BarError::Utf8(ref err) => Some(err),
-            // BarError::Box(ref err) => Some(err.as_ref()),
             BarError::Bar(_) => Some(self),
         }
     }
@@ -100,12 +96,6 @@ impl From<str::Utf8Error> for BarError {
         BarError::Utf8(err)
     }
 }
-
-// impl From<Box<Error>> for BarError {
-//     fn from(err: Box<Error>) -> BarError {
-//         BarError::Box(err)
-//     }
-// }
 
 impl From<String> for BarError {
     fn from(err: String) -> BarError {

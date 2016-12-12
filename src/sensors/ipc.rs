@@ -2,7 +2,7 @@ use error::BarError;
 use message::{Message, WebpackInfo};
 use r3ipc::{R3Funcs, R3_UNIX_SOCK, self};
 use sensors::{Sensor, SensorResult};
-use std::fs;
+use std::{io, fs};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::mpsc;
@@ -14,15 +14,12 @@ pub struct Ipc {
     pub socket_path: String,
 }
 
-pub struct R3Msg {
-    pub msgtype: u32,
-    pub payload: String,
-}
-
 impl Ipc {
-    pub fn new() -> Result<Self, BarError> {
+    pub fn new(socket_path: Option<&str>) -> Result<Self, BarError> {
         Ok(Ipc {
-            socket_path: R3_UNIX_SOCK.to_owned(),
+            socket_path: socket_path
+                .map(|s| s.to_owned())
+                .unwrap_or(R3_UNIX_SOCK.to_owned())
         })
     }
 }
@@ -34,7 +31,6 @@ impl Sensor for Ipc {
         let listener = UnixListener::bind(socket_path)?;
 
         Ok(thread::spawn(move|| {
-
             for stream in listener.incoming() {
                 let tx = tx.clone();
                 match stream {
@@ -71,15 +67,16 @@ fn handle_client(mut stream: UnixStream, tx: mpsc::Sender<Message>) {
                         stream.send_i3_message(r3ipc::REPLY, &reply_ok())
                     },
                     Err(e) => {
-                        tx.send(Message::Error(e.to_string())).unwrap();
+                        let err_msg = e.to_string().clone();
+                        tx.send(Message::Error(e)).unwrap();
                         stream.send_i3_message(
-                            r3ipc::REPLY, &reply_err(e.to_string())
+                            r3ipc::REPLY, &reply_err(err_msg)
                         )
                     },
                 };
 
                 if let Err(e) = reply {
-                    tx.send(Message::Error(e.to_string())).unwrap();
+                    tx.send(Message::Error(BarError::Io(e))).unwrap();
                     break;
                 };
 
@@ -90,10 +87,16 @@ fn handle_client(mut stream: UnixStream, tx: mpsc::Sender<Message>) {
             },
 
             Err(e) => {
-                // stop listening to this connection on error
-                tx.send(Message::Error(e.to_string())).unwrap();
-                break;
-             },
+                match e.kind() {
+                    // regular socket hangup - just ignore it
+                    io::ErrorKind::UnexpectedEof => break,
+                    _ => {
+                        // stop listening to this connection on error
+                        tx.send(Message::Error(BarError::Io(e))).unwrap();
+                        break;
+                    },
+                }
+            }
         }
     }
 }
@@ -101,11 +104,11 @@ fn handle_client(mut stream: UnixStream, tx: mpsc::Sender<Message>) {
 fn to_message(msgtype: u32, payload: String) -> Result<Message, BarError> {
     match msgtype {
         c @ 0...r3ipc::RESERVED => Err(BarError::Bar(
-            format!("R3Msg: reserved code range {}", c))),
+            format!("r3ipc: reserved code range {}", c))),
         r3ipc::WEBPACK => Ok(Message::Webpack(WebpackInfo::from_str(&payload)?)),
         r3ipc::UNPARK => Ok(Message::Unpark),
         _ => Err(BarError::Bar(
-            format!("R3Msg: msgtype '{}' not implemented", msgtype))),
+            format!("r3ipc: msgtype '{}' not implemented", msgtype))),
     }
 }
 

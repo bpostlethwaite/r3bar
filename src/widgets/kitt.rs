@@ -1,19 +1,18 @@
 use conrod::{self, widget, Colorable, Place, Positionable, Scalar, Widget};
-
-use animate::Animate;
-
-const FRAMES_PER_TICK: i64 = 8;
+use std::f64;
 
 /// The type upon which we'll implement the `Widget` trait.
 pub struct Kitt<'a> {
     common: widget::CommonBuilder,
     padding: Scalar,
     style: Style,
-    animate: Option<Animate>,
+    dt: Option<f64>,
+    animate: bool,
     gradient: &'a Vec<conrod::color::Color>,
     enabled: bool // respond to user input?
-
 }
+
+const PI2: f64 = f64::consts::PI * 2.0;
 
 widget_style!{
     /// Represents the unique styling for our Kitt widget.
@@ -28,7 +27,7 @@ widget_style!{
 pub struct State {
     ids: Vec<conrod::widget::Id>,
     rect_id: conrod::widget::Id,
-    iter: i64
+    rads: f64
 }
 
 impl<'a> Kitt<'a>{
@@ -37,12 +36,14 @@ impl<'a> Kitt<'a>{
         Kitt {
             common: widget::CommonBuilder::new(),
             padding: 2.0,
+            dt: None,
+            animate: true,
             style: Style::new(),
-            animate: None,
             gradient: gradient,
             enabled: true,
         }
     }
+
 
     #[allow(dead_code)]
     pub fn padding(mut self, padding: Scalar) -> Self {
@@ -50,7 +51,14 @@ impl<'a> Kitt<'a>{
         self
     }
 
-    pub fn animate(mut self, animate: Option<Animate>) -> Self {
+    #[allow(dead_code)]
+    pub fn dt(mut self, dt: Option<f64>) -> Self {
+        self.dt = dt;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn animate(mut self, animate: bool) -> Self {
         self.animate = animate;
         self
     }
@@ -91,7 +99,7 @@ impl<'a> Widget for Kitt<'a> {
             ids.push(id_gen.next());
         }
 
-        State { ids: ids, rect_id: id_gen.next(), iter: 0}
+        State { ids: ids, rect_id: id_gen.next(), rads: f64::consts::FRAC_PI_2}
     }
 
     fn style(&self) -> Self::Style {
@@ -102,23 +110,23 @@ impl<'a> Widget for Kitt<'a> {
         let widget::UpdateArgs { id, state, rect, mut ui, style, .. } = args;
 
         let n = state.ids.len() as f64;
+        let nr = n / 2.0;
         let cell_width = rect.w() / n;
-        let radius = cell_width / 2. - self.padding;
+        let circ_radius = cell_width / 2. - self.padding;
 
         // set default animate index out of range
-        let ni = n as i64;
         let mut animate_index = 0;
-        if let Some(animate) = self.animate {
-            animate_index = state.iter;
+        if self.animate {
 
-            if animate_index >= ni {
-                animate_index = 2 * ni - animate_index - 2;
-            }
+            // project radians into single dimension scaled to the number
+            // of buckets. Take the floor of x to get the bucket index.
+            let x = nr * (f64::cos(state.rads) + 0.9999);
+            animate_index = x as i64;
 
-            // only update our animation loop every N frames
-            if animate.tick(FRAMES_PER_TICK) {
+            // one revolution per second. Can easily make this configurable.
+            if let Some(dt) = self.dt {
                 state.update(|state| {
-                    state.iter = (state.iter + 1) % (2 * ni - 2);
+                    state.rads = (state.rads + PI2*dt) % PI2;
                 });
             }
         }
@@ -134,13 +142,13 @@ impl<'a> Widget for Kitt<'a> {
                 .set(state.rect_id, ui);
 
             let mut c_color = color;
-            if let Some(_) = self.animate {
+            if self.animate {
                 let c_index = (circ_index - animate_index).abs();
                 c_color = self.gradient[c_index as usize];
             }
 
             circ_index += 1;
-            widget::Circle::fill(radius)
+            widget::Circle::fill(circ_radius)
                 .x_place_on(state.rect_id, Place::Start(Some(self.padding)))
                 .graphics_for(id)
                 .color(c_color)
@@ -150,12 +158,12 @@ impl<'a> Widget for Kitt<'a> {
         for &circ_id in ids {
 
             let mut c_color = color;
-            if let Some(_) = self.animate {
+            if self.animate {
                 let c_index = (circ_index - animate_index).abs();
                 c_color = self.gradient[c_index as usize];
             }
 
-            widget::Circle::fill(radius)
+            widget::Circle::fill(circ_radius)
                 .x_relative(cell_width)
                 .graphics_for(id)
                 .color(c_color)
