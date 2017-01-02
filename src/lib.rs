@@ -3,12 +3,11 @@ extern crate byteorder;
 extern crate chrono;
 extern crate gfx_device_gl;
 extern crate i3ipc;
-extern crate piston_window;
 extern crate regex;
 extern crate serde_json;
 extern crate unix_socket;
+extern crate window as pistoncore_window;
 
-pub mod animate;
 pub mod message;
 pub mod widgets;
 pub mod bar;

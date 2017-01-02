@@ -1,20 +1,20 @@
-use conrod::backend::piston_window::GlyphCache;
+use conrod::backend::piston::event::UpdateEvent;
+use conrod::backend::piston::gfx::{GlyphCache, Texture, TextureSettings, Flip};
+use conrod::backend::piston::window::{Size, Window, WindowSettings};
+use conrod::backend::piston::{self, WindowEvents, OpenGL};
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
-use piston_window::{self, EventLoop, Flip, PistonWindow, Size,
-                    Texture, UpdateArgs, UpdateEvent, Window, WindowSettings};
-use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use error::BarError;
 use gfx_device_gl;
 
-use error::BarError;
+// trait to enable window.size
+use pistoncore_window::Window as BasicWindow;
+use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 // TODO Height should be detected by font height
 pub type Width = u32;
 pub const DEFAULT_GAUGE_WIDTH: Width = 200;
-
-const WIDTH: u32 = 200; // this is overridden to be screen width
-
 
 struct Gauge<T> {
     bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)>,
@@ -56,9 +56,9 @@ impl<T> ElemList for Elems<T> {
 
 pub struct Bar<T> {
     pub height: u32,
-    pub window: PistonWindow,
+    pub window: Window,
     pub ui: conrod::Ui,
-    image_map: conrod::image::Map<piston_window::Texture<gfx_device_gl::Resources>>,
+    image_map: conrod::image::Map<Texture<gfx_device_gl::Resources>>,
     lefts: Elems<T>,
     rights: Elems<T>,
 }
@@ -66,23 +66,28 @@ pub struct Bar<T> {
 impl<T: 'static> Bar<T> {
     pub fn new(height: u32) -> Bar<T> {
 
-        // Construct the window.
-        let mut window: PistonWindow = WindowSettings::new("RBAR", [WIDTH, height])
-            .opengl(piston_window::OpenGL::V3_2)
+        // Construct the window. The starting width is overridden in the
+        // patched winit library. To get the actual width we ask window.
+        let win_width = 0;
+        let window: Window = WindowSettings::new("RBAR", [win_width, height])
+            .opengl(OpenGL::V3_2)
             .decorated(false)
             .exit_on_esc(true)
             .samples(4)
             .vsync(true)
             .build()
             .unwrap();
-        window.set_ups(60);
+
+        let win_width = match window.size() {
+            Size { width, .. } => width,
+        };
 
         Bar {
             height: height,
             image_map: conrod::image::Map::new(),
             lefts: Vec::new(),
             rights: Vec::new(),
-            ui: conrod::UiBuilder::new().build(),
+            ui: conrod::UiBuilder::new([win_width as f64, height as f64]).build(),
             window: window,
         }
     }
@@ -95,8 +100,8 @@ impl<T: 'static> Bar<T> {
     pub fn load_icons(&mut self, path: &Path) -> Result<Id, BarError> {
         let texture;
         {
-            let ref mut factory = self.window.factory;
-            let settings = piston_window::TextureSettings::new();
+            let ref mut factory = self.window.context.factory;
+            let settings = TextureSettings::new();
             texture = Texture::from_path(factory, &path, Flip::None, &settings)?;
         }
         let id = self.gen_id();
@@ -133,11 +138,18 @@ impl<T: 'static> Bar<T> {
         // concat the right binders
         elems.extend(self.rights);
 
-        let mut text_texture_cache = GlyphCache::new(window, WIDTH, self.height);
+        let win_width = match window.size() {
+            Size { width, .. } => width,
+        };
 
-        while let Some(event) = window.next() {
+        let mut text_texture_cache = GlyphCache::new(window, win_width, self.height);
+
+        // Create the event loop.
+        let mut events = WindowEvents::new();
+
+        while let Some(event) = window.next_event(&mut events) {
             // Convert the piston event to a conrod event.
-            let convert = conrod::backend::piston_window::convert_event;
+            let convert = piston::window::convert_event;
             if let Some(e) = convert(event.clone(), &window) {
                 ui.handle_event(e);
             }
@@ -155,7 +167,9 @@ impl<T: 'static> Bar<T> {
                 // their requested lengths until fit. <not implemented>
                 let req_width = elems.width();
                 if req_width > win_width {
-                    println!("requested gauge widths greater than bar width")
+                    println!("requested gauge width {} greater than bar width {}",
+                             req_width,
+                             win_width)
                 }
 
                 // Next increase the spacer width to take up remaining space
@@ -206,7 +220,7 @@ impl<T: 'static> Bar<T> {
                         img
                     };
 
-                    let draw = conrod::backend::piston_window::draw;
+                    let draw = piston::gfx::draw;
                     draw(c,
                          g,
                          primitives,

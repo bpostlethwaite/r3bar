@@ -124,11 +124,13 @@ impl Store {
             Message::Workspaces(workspaces) => {
                 let mut work_vec = Vec::new();
                 for workspace in workspaces {
+                    let color;
                     if workspace.focused {
-                        work_vec.push((workspace.name.clone(), BASE0));
+                        color = BASE0;
                     } else {
-                        work_vec.push((workspace.name.clone(), BASE01));
+                        color = BASE01;
                     }
+                    work_vec.push((workspace.name.clone(), color));
                 }
 
                 state.i3.workspaces = work_vec;
@@ -385,7 +387,7 @@ fn main() {
                     WebpackInfo::Compile => true,
                     _ => false,
                 };
-                if let Some(_) = redkitt.render(animate, slot_id, ui_widgets, dt) {
+                if let Some(_) = redkitt.render(do_animate, slot_id, ui_widgets, dt) {
                     if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
                         println!("{}", e); // logging
                     }
