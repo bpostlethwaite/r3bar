@@ -1,7 +1,6 @@
 extern crate r3bar;
 extern crate conrod;
 
-
 use conrod::color::{self, Color};
 use r3bar::error::BarError;
 use r3bar::bar;
@@ -13,9 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 use std::{env, thread};
 
-
 static FONT_PATH: &'static str = "programming/r3bar/assets/fonts/Roboto Mono for Powerline.ttf";
-
 static BATTERY_PATH: &'static str = "programming/r3bar/assets/icons/battery";
 static VOLUME_PATH: &'static str = "programming/r3bar/assets/icons/volume";
 
@@ -32,7 +29,6 @@ const CYAN: Color = Color::Rgba(0.164705, 0.631372, 0.596078, 1.);
 #[allow(dead_code)]
 const ORANGE: Color = Color::Rgba(0.796078, 0.294117, 0.086274, 1.);
 const MAGENTA: Color = Color::Rgba(0.827450, 0.211764, 0.509803, 1.);
-
 
 const BAR_HEIGHT: u32 = 26;
 
@@ -124,11 +120,14 @@ impl Store {
             Message::Workspaces(workspaces) => {
                 let mut work_vec = Vec::new();
                 for workspace in workspaces {
-                    let color;
+                    let mut color;
                     if workspace.focused {
                         color = BASE0;
                     } else {
                         color = BASE01;
+                    }
+                    if workspace.urgent {
+                        color = color.complement();
                     }
                     work_vec.push((workspace.name.clone(), color));
                 }
@@ -174,7 +173,7 @@ impl Store {
                 }
             }
 
-            Message::Error(e) => println!("Msg Error: {}", e)
+            Message::Error(e) => println!("Msg Error: {}", e),
         };
     }
 
@@ -184,7 +183,7 @@ impl Store {
             Err(e) => {
                 println!("{}", e);
                 std::process::exit(1);
-            },
+            }
         }
     }
 
