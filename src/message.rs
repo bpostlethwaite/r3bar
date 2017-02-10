@@ -8,10 +8,12 @@ use std::str::FromStr;
 #[derive(Debug)]
 pub enum Message {
     Battery((String, String, String)),
-    I3Mode(String),
     Error(BarError),
+    Exit(i32),
+    I3Mode(String),
     Time(String),
     Unpark,
+    DiskUsage(String),
     Volume(String),
     Webpack(WebpackInfo),
     Wifi(WifiStatus),

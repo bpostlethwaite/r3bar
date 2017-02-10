@@ -9,6 +9,7 @@ pub mod battery;
 pub mod wifi;
 pub mod ipc;
 pub mod volume;
+pub mod diskusage;
 
 type SensorResult = Result<thread::JoinHandle<Result<(), BarError>>, BarError>;
 

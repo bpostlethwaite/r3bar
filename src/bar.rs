@@ -13,8 +13,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 // TODO Height should be detected by font height
-pub type Width = u32;
-pub const DEFAULT_GAUGE_WIDTH: Width = 200;
+pub const DEFAULT_GAUGE_WIDTH: u32 = 200;
 
 struct Gauge<T> {
     bind: Box<Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)>,
@@ -237,7 +236,7 @@ impl<T: 'static> Bar<T> {
         generator.next()
     }
 
-    pub fn bind_left<F>(mut self, width: Width, bind: F) -> Bar<T>
+    pub fn bind_left<F>(mut self, width: u32, bind: F) -> Bar<T>
         where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)
     {
         let id = self.gen_id();
@@ -251,7 +250,7 @@ impl<T: 'static> Bar<T> {
         self
     }
 
-    pub fn bind_right<F>(mut self, width: Width, bind: F) -> Bar<T>
+    pub fn bind_right<F>(mut self, width: u32, bind: F) -> Bar<T>
         where F: 'static + Fn(&MutexGuard<T>, Id, &mut UiCell, Option<f64>)
     {
         let id = self.gen_id();

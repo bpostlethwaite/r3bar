@@ -1,7 +1,9 @@
 extern crate r3bar;
 extern crate conrod;
+extern crate getopts;
 
 use conrod::color::{self, Color};
+use getopts::Options;
 use r3bar::error::BarError;
 use r3bar::bar;
 use r3bar::gauges::{self, icon_text};
@@ -12,9 +14,9 @@ use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 use std::{env, thread};
 
-static FONT_PATH: &'static str = "programming/r3bar/assets/fonts/Roboto Mono for Powerline.ttf";
-static BATTERY_PATH: &'static str = "programming/r3bar/assets/icons/battery";
-static VOLUME_PATH: &'static str = "programming/r3bar/assets/icons/volume";
+static FONT_PATH: &'static str = "projects/r3bar/assets/fonts/Roboto Mono for Powerline.ttf";
+static BATTERY_PATH: &'static str = "projects/r3bar/assets/icons/battery";
+static VOLUME_PATH: &'static str = "projects/r3bar/assets/icons/volume";
 
 const BASE03: Color = Color::Rgba(0., 0.168627, 0.211764, 1.);
 const BASE02: Color = Color::Rgba(0.027450, 0.211764, 0.258823, 1.);
@@ -72,6 +74,7 @@ struct State {
     i3: I3,
     webpack: WebpackInfo,
     wifi: r3bar::sensors::wifi::WifiStatus,
+    diskusage: String,
 }
 
 struct Store {
@@ -173,7 +176,13 @@ impl Store {
                 }
             }
 
+            Message::DiskUsage(usage) => {
+                state.diskusage = usage;
+            }
+
             Message::Error(e) => println!("Msg Error: {}", e),
+
+            Message::Exit(code) => std::process::exit(code),
         };
     }
 
@@ -182,7 +191,6 @@ impl Store {
             Ok(handle) => self.handles.push(handle),
             Err(e) => {
                 println!("{}", e);
-                std::process::exit(1);
             }
         }
     }
@@ -205,7 +213,43 @@ impl Store {
     }
 }
 
+fn print_usage(program: &str, opts: Options) {
+    let brief = format!("Usage: {} [options]", program);
+    print!("{}", opts.usage(&brief));
+}
+
+fn set_exit_timer(seconds: u64, tx: mpsc::Sender<Message>) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(seconds));
+        tx.send(Message::Exit(0)).unwrap();
+    });
+}
+
 fn main() {
+
+    let args: Vec<String> = env::args().collect();
+    let program = args[0].clone();
+    let mut exit_seconds = None;
+
+    if args.len() > 1 {
+        let mut opts = Options::new();
+        opts.optopt("b", "bench", "run program for n seconds", "SECONDS");
+        opts.optflag("h", "help", "print this help menu");
+        let matches = match opts.parse(&args[1..]) {
+            Ok(m) => m,
+            Err(f) => panic!(f.to_string()),
+        };
+
+        if matches.opt_present("h") {
+            print_usage(&program, opts);
+            return;
+        }
+
+        match matches.opt_str("b") {
+            Some(seconds) => exit_seconds = Some(seconds.parse::<i32>().unwrap()),
+            None => exit_seconds = None,
+        }
+    }
 
     // instantiate a our system
     let mut r3b = r3bar::bar::Bar::new(BAR_HEIGHT);
@@ -259,13 +303,13 @@ fn main() {
     let (tx, rx) = mpsc::channel();
 
     let state = Arc::new(Mutex::new(State {
-        time: "".to_string(),
+        time: "".to_owned(),
         battery: Battery {
             capacity: -1.0,
             icon: battery_icons.none,
         },
         i3: I3 {
-            mode: "".to_string(),
+            mode: "".to_owned(),
             workspaces: Vec::new(),
         },
         webpack: WebpackInfo::Done,
@@ -274,6 +318,7 @@ fn main() {
             percent: 0.,
             icon: volume_icons.none,
         },
+        diskusage: "".to_owned()
     }));
 
 
@@ -287,7 +332,6 @@ fn main() {
         volume_icons: volume_icons,
     };
 
-
     // set up the sensors
     let i3workspace = sensors::i3workspace::I3Workspace::new();
     let systime = sensors::systime::SysTime::new(Duration::from_millis(100));
@@ -295,6 +339,9 @@ fn main() {
     let volume = sensors::volume::Volume::new(Duration::from_millis(10000));
     let ipc = sensors::ipc::Ipc::new(None).unwrap();
     let wifi = sensors::wifi::ConfigureWifi::new().unwrap().configure();
+    let diskusage = sensors::diskusage::DiskUsage::new(
+        Duration::from_millis(5000), vec!["/".to_owned(), "/home".to_owned()]
+    );
 
     store.register(&volume);
     store.register(&systime);
@@ -302,9 +349,14 @@ fn main() {
     store.register(&i3workspace);
     store.register(&battery);
     store.register(&wifi);
+    store.register(&diskusage);
 
     store.listen();
 
+    // if there is an exit timer set it.
+    if let Some(seconds) = exit_seconds {
+        set_exit_timer(seconds as u64, tx.clone());
+    }
 
     // set up gauges to display sensor data
     let time_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
@@ -320,6 +372,7 @@ fn main() {
 
     let volume_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
 
+    let diskusage_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
 
     // bind widgets to our store state and call animate_frame to
     // start the render loop.
@@ -344,6 +397,15 @@ fn main() {
                 battery_widget.render(icon_text::Opts{
                     maybe_icon: Some(state.battery.icon),
                     maybe_text: Some(&format!("{}%", state.battery.capacity)),
+                }, slot_id, ui_widgets);
+            })
+
+        .bind_right(
+            bar::DEFAULT_GAUGE_WIDTH,
+            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+                diskusage_widget.render(icon_text::Opts{
+                    maybe_icon: None,
+                    maybe_text: Some(&state.diskusage),
                 }, slot_id, ui_widgets);
             })
 
@@ -393,7 +455,7 @@ fn main() {
                 }
             })
 
-    // I3 WORKSPACES
+//    I3 WORKSPACES
         .bind_left(
             bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
             move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
