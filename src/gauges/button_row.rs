@@ -1,4 +1,5 @@
-use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget, Place};
+use conrod::position::Place;
+use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget};
 
 pub struct ButtonRow {
     ids: Vec<conrod::widget::Id>,
@@ -42,7 +43,7 @@ impl ButtonRow {
                 .label_color(self.button_label_color)
                 .w(self.height as f64)
                 .h(self.height as f64)
-                .align_label_middle()
+                .center_justify_label()
         };
 
         let mut clicked_button: Option<i64> = None;

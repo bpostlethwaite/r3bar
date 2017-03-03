@@ -1,4 +1,5 @@
-use conrod::{self, widget, Place, Positionable, Widget};
+use conrod::position::Place;
+use conrod::{self, widget, Positionable, Widget};
 
 pub struct Simple {
     pub text_id: conrod::widget::Id,

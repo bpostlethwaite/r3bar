@@ -6,18 +6,20 @@ authors = ["bpostlethwaite <post.ben.here@gmail.com>"]
 [profile.release]
 debug = true
 
+[dependencies.conrod]
+version = "0.51.1"
+features = ['glium', 'winit']
+
 [dependencies]
 byteorder = "0.5.3"
 chrono = "0.2"
-conrod = "0.47.4"
-gfx_device_gl = "0.11.0"
 i3ipc = "0.4.2"
 regex = "0.1"
 serde = "0.8.12"
 serde_json = "0.8.2"
 unix_socket = "0.5.0"
-pistoncore-window = "0.23.0"
 getopts = "0.2"
+image = "0.12.0"
 
 [replace]
-"winit:0.5.6" = { git = "https://github.com/bpostlethwaite/winit", branch = "x11-statusbar-patch"}
+"winit:0.5.11" = { git = "https://github.com/bpostlethwaite/winit", branch = "x11-statusbar-patch"}

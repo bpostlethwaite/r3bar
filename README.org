@@ -8,7 +8,8 @@
 ** TODO Ensure Rubar works with OpenBox
 ** DONE Image / icon handling
 CLOSED: [2016-11-27 Sun 00:00]
-** TODO vol command writes back to rubar socket for instant update
+** DONE vol command writes back to rubar socket for instant update
+CLOSED: [2017-03-02 Thu 12:36]
 ** TODO volume sensor recognizes mute
 ** TODO "fit to contents" widget sizing
 ** TODO adjustable widget sizing (draggable)

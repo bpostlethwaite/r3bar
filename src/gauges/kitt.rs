@@ -1,4 +1,5 @@
-use conrod::{self, widget, Place, Positionable, Widget};
+use conrod::{self, widget, Positionable, Widget};
+use conrod::position::{Place};
 use conrod::color::{Color};
 
 use bar::{Animate};

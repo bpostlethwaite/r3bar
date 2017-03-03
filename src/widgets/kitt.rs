@@ -1,4 +1,5 @@
-use conrod::{self, widget, Colorable, Place, Positionable, Scalar, Widget};
+use conrod::{self, widget, Colorable, Positionable, Scalar, Widget};
+use conrod::position::{Place};
 use std::f64;
 
 /// The type upon which we'll implement the `Widget` trait.

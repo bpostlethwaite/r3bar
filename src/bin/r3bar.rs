@@ -1,5 +1,5 @@
 extern crate r3bar;
-extern crate conrod;
+#[macro_use] extern crate conrod;
 extern crate getopts;
 
 use conrod::color::{self, Color};
@@ -272,33 +272,30 @@ fn main() {
             padding: 0.0,
         }
     };
-
     let battery_icons = BatteryIcons {
-        charged: ic(r3b.load_icons(&bpath("charged-battery.png")).unwrap()),
-        charging: ic(r3b.load_icons(&bpath("charging-battery.png")).unwrap()),
-        empty: ic(r3b.load_icons(&bpath("empty-battery.png")).unwrap()),
-        full: ic(r3b.load_icons(&bpath("full-battery.png")).unwrap()),
-        half: ic(r3b.load_icons(&bpath("half-charged-battery.png")).unwrap()),
-        low: ic(r3b.load_icons(&bpath("low-battery.png")).unwrap()),
-        none: ic(r3b.load_icons(&bpath("no-battery.png")).unwrap()),
+        charged: ic(r3b.load_image(&bpath("charged-battery.png"))),
+        charging: ic(r3b.load_image(&bpath("charging-battery.png"))),
+        empty: ic(r3b.load_image(&bpath("empty-battery.png"))),
+        full: ic(r3b.load_image(&bpath("full-battery.png"))),
+        half: ic(r3b.load_image(&bpath("half-charged-battery.png"))),
+        low: ic(r3b.load_image(&bpath("low-battery.png"))),
+        none: ic(r3b.load_image(&bpath("no-battery.png"))),
     };
 
     let volume_icons = VolumeIcons {
-        high: ic(r3b.load_icons(&vpath("high-volume.png")).unwrap()),
-        medium: ic(r3b.load_icons(&vpath("medium-volume.png")).unwrap()),
-        low: ic(r3b.load_icons(&vpath("low-volume.png")).unwrap()),
-        mute: ic(r3b.load_icons(&vpath("mute-volume.png")).unwrap()),
-        none: ic(r3b.load_icons(&vpath("no-audio.png")).unwrap()),
+        high: ic(r3b.load_image(&vpath("high-volume.png"))),
+        medium: ic(r3b.load_image(&vpath("medium-volume.png"))),
+        low: ic(r3b.load_image(&vpath("low-volume.png"))),
+        mute: ic(r3b.load_image(&vpath("mute-volume.png"))),
+        none: ic(r3b.load_image(&vpath("no-audio.png"))),
     };
 
     // change the default theme.
     r3b.ui.theme.background_color = BASE03;
     r3b.ui.theme.label_color = BASE0;
-    r3b.ui.theme.padding = conrod::Padding::none();
+    r3b.ui.theme.padding = conrod::position::Padding::none();
     r3b.ui.theme.border_color = BASE02;
     r3b.ui.theme.font_size_medium = 14;
-
-
 
     let (tx, rx) = mpsc::channel();
 
