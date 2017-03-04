@@ -9,7 +9,7 @@ use r3bar::bar;
 use r3bar::gauges::{self, icon_text};
 use r3bar::sensors::{self, Sensor};
 use r3bar::message::{Message, WebpackInfo};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 use std::{env, thread};
@@ -34,32 +34,67 @@ const MAGENTA: Color = Color::Rgba(0.827450, 0.211764, 0.509803, 1.);
 
 const BAR_HEIGHT: u32 = 26;
 
-struct BatteryIcons {
-    charged: icon_text::Icon,
-    charging: icon_text::Icon,
-    empty: icon_text::Icon,
-    full: icon_text::Icon,
-    half: icon_text::Icon,
-    low: icon_text::Icon,
-    none: icon_text::Icon,
+enum BatteryIcon {
+    Charged,
+    Charging,
+    Empty,
+    Full,
+    Half,
+    Low,
+    None,
 }
 
-struct VolumeIcons {
-    high: icon_text::Icon,
-    medium: icon_text::Icon,
-    low: icon_text::Icon,
-    mute: icon_text::Icon,
-    none: icon_text::Icon,
+impl BatteryIcon {
+    pub fn to_path<'a>(self) -> PathBuf {
+
+        let home = env::home_dir().unwrap();
+        let path = home.join(Path::new(BATTERY_PATH));
+
+        match self {
+            BatteryIcon::Charged => path.join("charged-battery.png"),
+            BatteryIcon::Charging => path.join("charging-battery.png"),
+            BatteryIcon::Empty => path.join("empty-battery.png"),
+            BatteryIcon::Full => path.join("full-battery.png"),
+            BatteryIcon::Half => path.join("half-charged-battery.png"),
+            BatteryIcon::Low => path.join("low-battery.png"),
+            BatteryIcon::None => path.join("no-battery.png"),
+        }
+    }
 }
+
+enum VolumeIcon {
+    High,
+    Medium,
+    Low,
+    Mute,
+    None,
+}
+
+impl VolumeIcon {
+    pub fn to_path<'a>(self) -> PathBuf {
+
+        let home = env::home_dir().unwrap();
+        let path = home.join(Path::new(VOLUME_PATH));
+
+        match self {
+            VolumeIcon::High => path.join("high-volume.png"),
+            VolumeIcon::Medium => path.join("medium-volume.png"),
+            VolumeIcon::Low => path.join("low-volume.png"),
+            VolumeIcon::Mute => path.join("mute-volume.png"),
+            VolumeIcon::None => path.join("no-audio.png"),
+        }
+    }
+}
+
 
 struct Battery {
     capacity: f64,
-    icon: icon_text::Icon,
+    icon: BatteryIcon,
 }
 
 struct Volume {
     percent: f64,
-    icon: icon_text::Icon,
+    icon: VolumeIcon,
 }
 
 struct I3 {
@@ -82,8 +117,6 @@ struct Store {
     rx: mpsc::Receiver<Message>,
     state: Arc<Mutex<State>>,
     handles: Vec<thread::JoinHandle<Result<(), BarError>>>,
-    battery_icons: BatteryIcons,
-    volume_icons: VolumeIcons,
 }
 
 impl Store {
@@ -99,15 +132,15 @@ impl Store {
                     Ok(cap) => {
                         state.battery.capacity = cap;
                         if ac == "1" {
-                            state.battery.icon = self.battery_icons.charging;
+                            state.battery.icon = BatteryIcon::Charging;
                         } else {
                             state.battery.icon = match cap {
-                                0.0...5.0 => self.battery_icons.empty,
-                                5.0...35.0 => self.battery_icons.low,
-                                35.0...75.0 => self.battery_icons.half,
-                                75.0...95.0 => self.battery_icons.charged,
-                                95.0...100.0 => self.battery_icons.full,
-                                _ => self.battery_icons.none,
+                                0.0...5.0 => BatteryIcon::Empty,
+                                5.0...35.0 => BatteryIcon::Low,
+                                35.0...75.0 => BatteryIcon::Half,
+                                75.0...95.0 => BatteryIcon::Charged,
+                                95.0...100.0 => BatteryIcon::Full,
+                                _ => BatteryIcon::None,
                             }
                         }
                     }
@@ -115,7 +148,7 @@ impl Store {
                     Err(e) => {
                         println!("Battery capacity parse error {}", e);
                         state.battery.capacity = 0.;
-                        state.battery.icon = self.battery_icons.none;
+                        state.battery.icon = BatteryIcon::None;
                     }
                 }
             }
@@ -161,17 +194,17 @@ impl Store {
                     Ok(vol) => {
                         state.volume.percent = vol;
                         state.volume.icon = match vol {
-                            0.0 => self.volume_icons.mute,
-                            0.0...35.0 => self.volume_icons.low,
-                            35.0...75.0 => self.volume_icons.medium,
-                            75.0...100.0 => self.volume_icons.high,
-                            _ => self.volume_icons.none,
+                            0.0 => VolumeIcon::Mute,
+                            0.0...35.0 => VolumeIcon::Low,
+                            35.0...75.0 => VolumeIcon::Medium,
+                            75.0...100.0 => VolumeIcon::High,
+                            _ => VolumeIcon::None,
                         }
                     }
                     Err(e) => {
                         println!("Volume parse error {}", e);
                         state.volume.percent = 0.;
-                        state.volume.icon = self.volume_icons.none;
+                        state.volume.icon = VolumeIcon::None;
                     }
                 }
             }
@@ -251,59 +284,13 @@ fn main() {
         }
     }
 
-    // instantiate a our system
-    let mut r3b = r3bar::bar::Bar::new(BAR_HEIGHT);
-
-    // load up some assets
-    let home = env::home_dir().unwrap();
-    let font_path = home.join(Path::new(FONT_PATH));
-    let bat_path = home.join(Path::new(BATTERY_PATH));
-    let vol_path = home.join(Path::new(VOLUME_PATH));
-
-    r3b.set_fonts(&font_path).unwrap();
-
-    let bpath = |p| bat_path.join(p);
-    let vpath = |p| vol_path.join(p);
-    let ic = |id| {
-        icon_text::Icon {
-            w: 24.0,
-            h: 24.0,
-            id: id,
-            padding: 0.0,
-        }
-    };
-    let battery_icons = BatteryIcons {
-        charged: ic(r3b.load_image(&bpath("charged-battery.png"))),
-        charging: ic(r3b.load_image(&bpath("charging-battery.png"))),
-        empty: ic(r3b.load_image(&bpath("empty-battery.png"))),
-        full: ic(r3b.load_image(&bpath("full-battery.png"))),
-        half: ic(r3b.load_image(&bpath("half-charged-battery.png"))),
-        low: ic(r3b.load_image(&bpath("low-battery.png"))),
-        none: ic(r3b.load_image(&bpath("no-battery.png"))),
-    };
-
-    let volume_icons = VolumeIcons {
-        high: ic(r3b.load_image(&vpath("high-volume.png"))),
-        medium: ic(r3b.load_image(&vpath("medium-volume.png"))),
-        low: ic(r3b.load_image(&vpath("low-volume.png"))),
-        mute: ic(r3b.load_image(&vpath("mute-volume.png"))),
-        none: ic(r3b.load_image(&vpath("no-audio.png"))),
-    };
-
-    // change the default theme.
-    r3b.ui.theme.background_color = BASE03;
-    r3b.ui.theme.label_color = BASE0;
-    r3b.ui.theme.padding = conrod::position::Padding::none();
-    r3b.ui.theme.border_color = BASE02;
-    r3b.ui.theme.font_size_medium = 14;
-
     let (tx, rx) = mpsc::channel();
 
     let state = Arc::new(Mutex::new(State {
         time: "".to_owned(),
         battery: Battery {
             capacity: -1.0,
-            icon: battery_icons.none,
+            icon: BatteryIcon::None,
         },
         i3: I3 {
             mode: "".to_owned(),
@@ -313,7 +300,7 @@ fn main() {
         wifi: sensors::wifi::WifiStatus::new(53.),
         volume: Volume {
             percent: 0.,
-            icon: volume_icons.none,
+            icon: VolumeIcon::None,
         },
         diskusage: "".to_owned()
     }));
@@ -325,8 +312,6 @@ fn main() {
         tx: tx.clone(),
         state: state.clone(),
         handles: Vec::new(),
-        battery_icons: battery_icons,
-        volume_icons: volume_icons,
     };
 
     // set up the sensors
@@ -348,130 +333,172 @@ fn main() {
     store.register(&wifi);
     store.register(&diskusage);
 
-    store.listen();
+    let listener = store.listen();
 
     // if there is an exit timer set it.
     if let Some(seconds) = exit_seconds {
         set_exit_timer(seconds as u64, tx.clone());
     }
 
-    // set up gauges to display sensor data
-    let time_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
-
-    let battery_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
-
-    let wifi_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
-
-    let workspace_widget =
-        gauges::button_row::ButtonRow::new(30, BASE03, MAGENTA, r3b.ui.widget_id_generator());
-
-    let redkitt = gauges::redkitt::RedKitt::new(r3b.ui.widget_id_generator());
-
-    let volume_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
-
-    let diskusage_widget = gauges::icon_text::IconText::new(r3b.ui.widget_id_generator());
+    // instantiate a our system
+    let r3b = r3bar::bar::Bar{};
 
     // bind widgets to our store state and call animate_frame to
     // start the render loop.
-    r3b
+    r3b.run(BAR_HEIGHT, Arc::new(move |ref mut ui_context| {
 
-    // TIME
-        .bind_right(
+        // Set up assets
+        let home = env::home_dir().unwrap();
+        let font_path = home.join(Path::new(FONT_PATH));
+        ui_context.set_fonts(&font_path).unwrap();
+
+        let ic = |id| {
+            icon_text::Icon {
+                w: 24.0,
+                h: 24.0,
+                id: id,
+                padding: 0.0,
+            }
+        };
+
+        ui_context.load_image();
+
+        let time_widget;
+        let battery_widget;
+        let wifi_widget;
+        let workspace_widget;
+        let redkitt;
+        let volume_widget;
+        let diskusage_widget;
+        {
+            let ui = &mut ui_context.ui;
+
+            // change the default theme.
+            ui.theme.background_color = BASE03;
+            ui.theme.label_color = BASE0;
+            ui.theme.padding = conrod::position::Padding::none();
+            ui.theme.border_color = BASE02;
+            ui.theme.font_size_medium = 14;
+
+            let id_gen = ui.widget_id_generator();
+
+            // set up gauges to display sensor data
+            time_widget = gauges::icon_text::IconText::new(id_gen);
+            battery_widget = gauges::icon_text::IconText::new(id_gen);
+            wifi_widget = gauges::icon_text::IconText::new(id_gen);
+            workspace_widget = gauges::button_row::ButtonRow::new(
+                30, BASE03, MAGENTA, id_gen
+            );
+            redkitt = gauges::redkitt::RedKitt::new(id_gen);
+            volume_widget = gauges::icon_text::IconText::new(id_gen);
+            diskusage_widget = gauges::icon_text::IconText::new(id_gen);
+        }
+
+        let state = state.clone();
+
+        // TIME
+        ui_context.bind_right(
             bar::DEFAULT_GAUGE_WIDTH + 10,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            move |slot_id, mut ui_widgets, _| {
+
+                let state = state.lock().unwrap();
 
                 time_widget.render(icon_text::Opts{
                     maybe_icon: None,
                     maybe_text: Some(&state.time),
                 }, slot_id, ui_widgets);
 
-            })
+            });
 
-    // BATTERY
-        .bind_right(
+        // BATTERY
+        ui_context.bind_right(
             bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            move |slot_id, mut ui_widgets, _| {
+
+                let state = state.lock().unwrap();
+
                 battery_widget.render(icon_text::Opts{
                     maybe_icon: Some(state.battery.icon),
                     maybe_text: Some(&format!("{}%", state.battery.capacity)),
                 }, slot_id, ui_widgets);
-            })
+            });
 
-        .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
-                diskusage_widget.render(icon_text::Opts{
-                    maybe_icon: None,
-                    maybe_text: Some(&state.diskusage),
-                }, slot_id, ui_widgets);
-            })
+        // // DISK USAGE
+        // ui_context.bind_right(
+        //     bar::DEFAULT_GAUGE_WIDTH,
+        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+        //         diskusage_widget.render(icon_text::Opts{
+        //             maybe_icon: None,
+        //             maybe_text: Some(&state.diskusage),
+        //         }, slot_id, ui_widgets);
+        //     });
 
-    // VOLUME
-        .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+        // // VOLUME
+        // ui_context.bind_right(
+        //     bar::DEFAULT_GAUGE_WIDTH / 2,
+        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
-                volume_widget.render(icon_text::Opts{
-                    maybe_icon: Some(state.volume.icon),
-                    maybe_text: Some(&format!("{}%", state.volume.percent)),
-                }, slot_id, ui_widgets);
+        //         volume_widget.render(icon_text::Opts{
+        //             maybe_icon: Some(state.volume.icon),
+        //             maybe_text: Some(&format!("{}%", state.volume.percent)),
+        //         }, slot_id, ui_widgets);
+        //     });
 
-            })
+        // // WIFI
+        // ui_context.bind_right(
+        //     bar::DEFAULT_GAUGE_WIDTH,
+        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
-    // WIFI
-        .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+        //         let ssid = state.wifi.ssid.clone()
+        //             .unwrap_or("unconnected".to_string());
+        //         let signal_quality = state.wifi.signal.map(dbm_to_percent)
+        //             .unwrap_or(0.);
 
-                let ssid = state.wifi.ssid.clone()
-                    .unwrap_or("unconnected".to_string());
-                let signal_quality = state.wifi.signal.map(dbm_to_percent)
-                    .unwrap_or(0.);
+        //         let wifi_line = format!("{}  {}%", ssid, signal_quality);
 
-                let wifi_line = format!("{}  {}%", ssid, signal_quality);
+        //         wifi_widget.render(icon_text::Opts{
+        //             maybe_icon: None,
+        //             maybe_text: Some(&wifi_line),
+        //         }, slot_id, ui_widgets);
+        //     });
 
-                wifi_widget.render(icon_text::Opts{
-                    maybe_icon: None,
-                    maybe_text: Some(&wifi_line),
-                }, slot_id, ui_widgets);
-            })
+        // // WEBPACK SENSOR
+        // ui_context.bind_right(
+        //     bar::DEFAULT_GAUGE_WIDTH,
+        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, dt| {
 
-    // WEBPACK SENSOR
-        .bind_right(
-            bar::DEFAULT_GAUGE_WIDTH,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, dt| {
+        //         let do_animate = match state.webpack {
+        //             WebpackInfo::Compile => true,
+        //             _ => false,
+        //         };
+        //         if let Some(_) = redkitt.render(do_animate, slot_id, ui_widgets, dt) {
+        //             if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
+        //                 println!("{}", e); // logging
+        //             }
+        //         }
+        //     });
 
-                let do_animate = match state.webpack {
-                    WebpackInfo::Compile => true,
-                    _ => false,
-                };
-                if let Some(_) = redkitt.render(do_animate, slot_id, ui_widgets, dt) {
-                    if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
-                        println!("{}", e); // logging
-                    }
-                }
-            })
+        // // I3 WORKSPACES
+        // ui_context.bind_left(
+        //     bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
+        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
 
-//    I3 WORKSPACES
-        .bind_left(
-            bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+        //         if let Some(ibtn) = workspace_widget
+        //             .render(
+        //                 state.i3.workspaces.clone(),
+        //                 &state.i3.mode,
+        //                 slot_id,
+        //                 ui_widgets) {
 
-                if let Some(ibtn) = workspace_widget
-                    .render(
-                        state.i3.workspaces.clone(),
-                        &state.i3.mode,
-                        slot_id,
-                        ui_widgets) {
+        //                 if let Err(e) = i3workspace.change_workspace(ibtn + 1) {
+        //                     println!("{}", e); // logging
+        //                 }
+        //             }
+        //     });
+    }));
 
-                        if let Err(e) = i3workspace.change_workspace(ibtn + 1) {
-                            println!("{}", e); // logging
-                        }
-                    }
-            })
-        .animate_frame(state);
+    listener.join();
 }
-
 
 fn dbm_to_percent(dbm: f64) -> f64 {
     2. * (dbm + 100.)
