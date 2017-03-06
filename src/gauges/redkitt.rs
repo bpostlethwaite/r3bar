@@ -1,6 +1,7 @@
-use conrod::{self, Positionable, Sizeable, Widget};
 use conrod::color::{Color};
 use conrod::widget::{Id};
+use conrod::{self, Positionable, Sizeable, Widget};
+use std::time::Duration;
 
 use widgets;
 
@@ -26,13 +27,12 @@ impl RedKitt {
         }
     }
 
-    pub fn render(&self, animate: bool, slot_id: Id, mut ui: &mut conrod::UiCell, dt: Option<f64>) -> Option<()> {
+    pub fn render(&self, slot_id: Id, mut ui: &mut conrod::UiCell, dt: Option<Duration>) -> Option<()> {
 
         widgets::kitt::Kitt::new(&self.color_grad)
             .wh_of(slot_id)
             .padding(4.0)
             .dt(dt)
-            .animate(animate)
             .middle_of(slot_id)
             .set(self.kitt_id, ui)
     }

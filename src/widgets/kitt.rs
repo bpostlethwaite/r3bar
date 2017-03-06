@@ -1,5 +1,6 @@
 use conrod::{self, widget, Colorable, Positionable, Scalar, Widget};
 use conrod::position::{Place};
+use std::time::Duration;
 use std::f64;
 
 /// The type upon which we'll implement the `Widget` trait.
@@ -7,8 +8,7 @@ pub struct Kitt<'a> {
     common: widget::CommonBuilder,
     padding: Scalar,
     style: Style,
-    dt: Option<f64>,
-    animate: bool,
+    dt: Option<Duration>,
     gradient: &'a Vec<conrod::color::Color>,
     enabled: bool // respond to user input?
 }
@@ -38,7 +38,6 @@ impl<'a> Kitt<'a>{
             common: widget::CommonBuilder::new(),
             padding: 2.0,
             dt: None,
-            animate: true,
             style: Style::new(),
             gradient: gradient,
             enabled: true,
@@ -53,14 +52,8 @@ impl<'a> Kitt<'a>{
     }
 
     #[allow(dead_code)]
-    pub fn dt(mut self, dt: Option<f64>) -> Self {
+    pub fn dt(mut self, dt: Option<Duration>) -> Self {
         self.dt = dt;
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn animate(mut self, animate: bool) -> Self {
-        self.animate = animate;
         self
     }
 
@@ -117,19 +110,19 @@ impl<'a> Widget for Kitt<'a> {
 
         // set default animate index out of range
         let mut animate_index = 0;
-        if self.animate {
 
-            // project radians into single dimension scaled to the number
-            // of buckets. Take the floor of x to get the bucket index.
+        // project radians into single dimension scaled to the number
+        // of buckets. Take the floor of x to get the bucket index.
+        // one revolution per second. Can easily make this configurable.
+        if let Some(dt) = self.dt {
+
             let x = nr * (f64::cos(state.rads) + 0.9999);
             animate_index = x as i64;
 
-            // one revolution per second. Can easily make this configurable.
-            if let Some(dt) = self.dt {
-                state.update(|state| {
-                    state.rads = (state.rads + PI2*dt) % PI2;
-                });
-            }
+            let sec = (dt.as_secs() as f64) + (dt.subsec_nanos() as f64) * 1.0e-9;
+            state.update(|state| {
+                state.rads = (state.rads + PI2*sec) % PI2;
+            });
         }
 
         let color = style.background_color(&ui.theme);
@@ -143,7 +136,7 @@ impl<'a> Widget for Kitt<'a> {
                 .set(state.rect_id, ui);
 
             let mut c_color = color;
-            if self.animate {
+            if self.dt.is_some() {
                 let c_index = (circ_index - animate_index).abs();
                 c_color = self.gradient[c_index as usize];
             }
@@ -159,7 +152,7 @@ impl<'a> Widget for Kitt<'a> {
         for &circ_id in ids {
 
             let mut c_color = color;
-            if self.animate {
+            if self.dt.is_some() {
                 let c_index = (circ_index - animate_index).abs();
                 c_color = self.gradient[c_index as usize];
             }

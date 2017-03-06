@@ -2,15 +2,16 @@ use conrod::backend::glium::glium::{DisplayBuild, Surface};
 use conrod::backend::glium::glium;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
-use std::sync::mpsc;
 use error::BarError;
 use image;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc};
-use std;
-use self::glium::glutin::VirtualKeyCode as KeyCode;
 use self::glium::glutin::Event::KeyboardInput;
+use self::glium::glutin::VirtualKeyCode as KeyCode;
 use std::marker::{Send, Sync};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::sync::{Arc};
+use std::time::Duration;
+use std;
 
 // 1. get ui inside thread
 // 2. User Mutex instead of MutexGaurd and unlock Mutex in binder callback
@@ -20,7 +21,7 @@ use std::marker::{Send, Sync};
 pub const DEFAULT_GAUGE_WIDTH: u32 = 200;
 
 struct Gauge {
-    bind: Box<Fn(Id, &mut UiCell, Option<f64>)>,
+    bind: Box<Fn(Id, &mut UiCell, &mut UpdateConfig)>,
     width: u32,
     id: Id,
 }
@@ -221,16 +222,9 @@ impl DisplayLoop {
                 }
             }
 
-            // Draw the most recently received `conrod::render::Primitives`
-            // sent from the `Ui`.
-            // if let Ok(mut primitives) = rx.try_recv() {
-            //     while let Ok(newest) = rx.try_recv() {
-            //         primitives = newest;
-            //     }
-
-                // Process msgs until all msgs have been consumed and we have
-                // obtained at least one primitive to render.
-                // Only draw the last primitive from the queue (ignore the others).
+            // Process msgs until all msgs have been consumed and we have
+            // obtained at least one primitive to render.
+            // Only draw the last primitive from the queue (ignore the others).
             let mut maybe_primitives = None;
             while let Ok(resp) = rx.try_recv() {
                 match resp {
@@ -277,9 +271,32 @@ impl DisplayLoop {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct UpdateConfig {
+    needs_update: bool,
+    last_update: std::time::Instant,
+}
+
+impl UpdateConfig {
+    pub fn since_last_update(&self) -> Duration {
+        let now = std::time::Instant::now();
+        now.duration_since(self.last_update)
+    }
+
+    pub fn update(&mut self) {
+        self.needs_update = true;
+    }
+
+    fn updated(&mut self) {
+        self.last_update = std::time::Instant::now();
+    }
+}
+
+
+
 pub struct UiLoop {
     pub ui: conrod::Ui,
-    display_info: DisplayInfo,
+    pub display_info: DisplayInfo,
     lefts: Elems,
     rights: Elems,
     rx: mpsc::Receiver<DispResponse>,
@@ -351,7 +368,7 @@ impl UiLoop {
     }
 
     pub fn bind_left<F>(&mut self, width: u32, bind: F) -> &Self
-        where F: 'static + Send + Fn(Id, &mut UiCell, Option<f64>)
+        where F: 'static + Send + Fn(Id, &mut UiCell, &mut UpdateConfig)
     {
         let id = self.gen_id();
 
@@ -365,7 +382,7 @@ impl UiLoop {
     }
 
     pub fn bind_right<F>(&mut self, width: u32, bind: F) -> &Self
-        where F: 'static + Send + Fn(Id, &mut UiCell, Option<f64>)
+        where F: 'static + Send + Fn(Id, &mut UiCell, &mut UpdateConfig)
     {
         let id = self.gen_id();
 
@@ -411,8 +428,11 @@ impl UiLoop {
         // concat the right binders
         elems.extend(self.rights);
 
+        let mut updater = UpdateConfig{
+            needs_update: true,
+            last_update: std::time::Instant::now(),
+        };
 
-        let mut needs_update = true;
         'conrod: loop {
 
             // Collect any pending events.
@@ -429,7 +449,7 @@ impl UiLoop {
             }
 
             // If there are no events pending, wait for them.
-            if events.is_empty() || !needs_update {
+            if events.is_empty() || !updater.needs_update {
                 match self.rx.recv() {
                     Ok(DispResponse::DisplayInfo(info)) => self.display_info = info,
                     Ok(DispResponse::ImageId(_)) => (),
@@ -441,12 +461,12 @@ impl UiLoop {
                 }
             }
 
-            needs_update = false;
+            updater.needs_update = false;
 
             // Input each event into the `Ui`.
             for event in events {
                 self.ui.handle_event(event);
-                needs_update = true;
+                updater.needs_update = true;
             }
 
             // If the user has requested more than the window size we modify
@@ -485,10 +505,9 @@ impl UiLoop {
                 Canvas::new().flow_right(&splits).set(master_id, ui);
 
                 // Unlock state so all binder functions may mutate.
-                let dt: Option<f64> = None; //event.update_args().map(|updt| updt
                 for elem in elems.iter() {
                     if let &Elem::Gauge(Gauge { id, ref bind, .. }) = elem {
-                        bind(id, ui, dt);
+                        bind(id, ui, &mut updater);
                     }
                 }
             }
@@ -501,7 +520,10 @@ impl UiLoop {
                 }
                 // Wakeup `winit` for rendering.
                 self.display_info.proxy.wakeup_event_loop();
+
             }
+
+            updater.updated();
         }
 
     }

@@ -4,11 +4,11 @@ extern crate getopts;
 
 use conrod::color::{self, Color};
 use getopts::Options;
-use r3bar::error::BarError;
 use r3bar::bar;
+use r3bar::error::BarError;
 use r3bar::gauges::{self, icon_text};
-use r3bar::sensors::{self, Sensor, i3workspace};
 use r3bar::message::{Message, WebpackInfo};
+use r3bar::sensors::{self, Sensor, i3workspace};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -286,11 +286,8 @@ impl Store {
 
     fn listen(self, ui_txs: Vec<mpsc::Sender<bar::DispResponse>>) -> thread::JoinHandle<()>
     {
-
-        let txs: Vec<mpsc::Sender<bar::DispResponse>> = ui_txs.iter().map(|tx| tx.clone()).collect();
-
         let listener = thread::spawn(move || {
-            let txs = txs.clone();
+            let txs = ui_txs.clone();
             loop {
 
                 // channels will throw an error when the other ends disconnect.
@@ -402,9 +399,6 @@ fn main() {
     // instantiate a our system
     let r3b = r3bar::bar::Bar{};
 
-    // bind widgets to our store state and call animate_frame to
-    // start the render loop. Pass in a tx channel for our thread UIs to
-    // communicate on.
     let ui_txs = r3b.run(BAR_HEIGHT, tx.clone(), Arc::new(move |ui_context: &mut bar::UiLoop, app_tx: mpsc::Sender<Message>| {
 
         // Set up assets
@@ -551,15 +545,19 @@ fn main() {
             let state = state.clone();
             ui_context.bind_right(
                 bar::DEFAULT_GAUGE_WIDTH,
-                move |slot_id, mut ui_widgets, dt| {
+                move |slot_id, mut ui_widgets, mut updater| {
 
                     let state = state.lock().unwrap();
-                    let do_animate = match state.webpack {
-                        WebpackInfo::Compile => true,
-                        _ => false,
+                    let delta = match state.webpack {
+                        WebpackInfo::Compile => {
+                            updater.update();
+                            Some(updater.since_last_update())
+                        },
+                        _ => None,
                     };
+
                     if let Some(_) = redkitt.render(
-                        do_animate, slot_id, ui_widgets, dt
+                        slot_id, ui_widgets, delta
                     ) {
                         let done_msg = Message::Webpack(WebpackInfo::Done);
                         if let Err(e) = app_tx.send(done_msg) {
