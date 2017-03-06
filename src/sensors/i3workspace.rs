@@ -15,7 +15,7 @@ impl I3Workspace {
         I3Workspace{}
     }
 
-    pub fn change_workspace(&self, workspace_number: i64) -> Result<(), BarError> {
+    pub fn change_workspace(workspace_number: i64) -> Result<(), BarError> {
         let cmd = format!("workspace {}", workspace_number);
 
         let mut connection = I3Connection::connect()?;

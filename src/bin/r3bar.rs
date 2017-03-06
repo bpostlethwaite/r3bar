@@ -7,10 +7,10 @@ use getopts::Options;
 use r3bar::error::BarError;
 use r3bar::bar;
 use r3bar::gauges::{self, icon_text};
-use r3bar::sensors::{self, Sensor};
+use r3bar::sensors::{self, Sensor, i3workspace};
 use r3bar::message::{Message, WebpackInfo};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 use std::{env, thread};
 
@@ -34,6 +34,15 @@ const MAGENTA: Color = Color::Rgba(0.827450, 0.211764, 0.509803, 1.);
 
 const BAR_HEIGHT: u32 = 26;
 
+fn default_icon(id: conrod::image::Id) -> icon_text::Icon {
+    icon_text::Icon {
+        w: 24.0,
+        h: 24.0,
+        id: id,
+        padding: 0.0,
+    }
+}
+
 enum BatteryIcon {
     Charged,
     Charging,
@@ -45,19 +54,45 @@ enum BatteryIcon {
 }
 
 impl BatteryIcon {
-    pub fn to_path<'a>(self) -> PathBuf {
+    pub fn to_struct(&self, battery: &BatteryIcons) -> icon_text::Icon {
+        match *self {
+            BatteryIcon::Charged => battery.charged,
+            BatteryIcon::Charging => battery.charging,
+            BatteryIcon::Empty => battery.empty,
+            BatteryIcon::Full => battery.full,
+            BatteryIcon::Half => battery.half,
+            BatteryIcon::Low =>  battery.low,
+            BatteryIcon::None => battery.none,
+        }
+    }
+}
+
+struct BatteryIcons {
+    charged: icon_text::Icon,
+    charging: icon_text::Icon,
+    empty: icon_text::Icon,
+    full: icon_text::Icon,
+    half: icon_text::Icon,
+    low: icon_text::Icon,
+    none: icon_text::Icon,
+}
+
+impl BatteryIcons {
+    pub fn new<F>(path_to_id: F) -> BatteryIcons
+        where F: Fn(PathBuf) -> Result<conrod::image::Id, BarError> {
 
         let home = env::home_dir().unwrap();
         let path = home.join(Path::new(BATTERY_PATH));
+        let convert = |p| default_icon(path_to_id(path.join(p)).unwrap());
 
-        match self {
-            BatteryIcon::Charged => path.join("charged-battery.png"),
-            BatteryIcon::Charging => path.join("charging-battery.png"),
-            BatteryIcon::Empty => path.join("empty-battery.png"),
-            BatteryIcon::Full => path.join("full-battery.png"),
-            BatteryIcon::Half => path.join("half-charged-battery.png"),
-            BatteryIcon::Low => path.join("low-battery.png"),
-            BatteryIcon::None => path.join("no-battery.png"),
+        BatteryIcons {
+            charged: convert("charged-battery.png"),
+            charging: convert("charging-battery.png"),
+            empty: convert("empty-battery.png"),
+            full: convert("full-battery.png"),
+            half: convert("half-charged-battery.png"),
+            low: convert("low-battery.png"),
+            none: convert("no-battery.png"),
         }
     }
 }
@@ -71,21 +106,42 @@ enum VolumeIcon {
 }
 
 impl VolumeIcon {
-    pub fn to_path<'a>(self) -> PathBuf {
-
-        let home = env::home_dir().unwrap();
-        let path = home.join(Path::new(VOLUME_PATH));
-
-        match self {
-            VolumeIcon::High => path.join("high-volume.png"),
-            VolumeIcon::Medium => path.join("medium-volume.png"),
-            VolumeIcon::Low => path.join("low-volume.png"),
-            VolumeIcon::Mute => path.join("mute-volume.png"),
-            VolumeIcon::None => path.join("no-audio.png"),
+    pub fn to_struct(&self, volume: &VolumeIcons) -> icon_text::Icon {
+        match *self {
+            VolumeIcon::High => volume.high,
+            VolumeIcon::Medium => volume.medium,
+            VolumeIcon::Low => volume.low,
+            VolumeIcon::Mute => volume.mute,
+            VolumeIcon::None => volume.none,
         }
     }
 }
 
+struct VolumeIcons {
+    high: icon_text::Icon,
+    medium: icon_text::Icon,
+    low: icon_text::Icon,
+    mute: icon_text::Icon,
+    none: icon_text::Icon,
+}
+
+impl VolumeIcons {
+    pub fn new<F>(path_to_id: F) -> VolumeIcons
+        where F: Fn(PathBuf) -> Result<conrod::image::Id, BarError> {
+
+        let home = env::home_dir().unwrap();
+        let path = home.join(Path::new(VOLUME_PATH));
+        let convert = |p| default_icon(path_to_id(path.join(p)).unwrap());
+
+        VolumeIcons {
+            high: convert("high-volume.png"),
+            medium: convert("medium-volume.png"),
+            low: convert("low-volume.png"),
+            mute: convert("mute-volume.png"),
+            none: convert("no-audio.png"),
+        }
+    }
+}
 
 struct Battery {
     capacity: f64,
@@ -228,8 +284,13 @@ impl Store {
         }
     }
 
-    fn listen(self) -> thread::JoinHandle<()> {
+    fn listen(self, ui_txs: Vec<mpsc::Sender<bar::DispResponse>>) -> thread::JoinHandle<()>
+    {
+
+        let txs: Vec<mpsc::Sender<bar::DispResponse>> = ui_txs.iter().map(|tx| tx.clone()).collect();
+
         let listener = thread::spawn(move || {
+            let txs = txs.clone();
             loop {
 
                 // channels will throw an error when the other ends disconnect.
@@ -239,6 +300,10 @@ impl Store {
                 };
 
                 self.update(msg);
+
+                for tx in txs.iter() {
+                    tx.send(bar::DispResponse::WakeDisplay).unwrap();
+                }
             }
         });
 
@@ -333,35 +398,31 @@ fn main() {
     store.register(&wifi);
     store.register(&diskusage);
 
-    let listener = store.listen();
-
-    // if there is an exit timer set it.
-    if let Some(seconds) = exit_seconds {
-        set_exit_timer(seconds as u64, tx.clone());
-    }
 
     // instantiate a our system
     let r3b = r3bar::bar::Bar{};
 
     // bind widgets to our store state and call animate_frame to
-    // start the render loop.
-    r3b.run(BAR_HEIGHT, Arc::new(move |ref mut ui_context| {
+    // start the render loop. Pass in a tx channel for our thread UIs to
+    // communicate on.
+    let ui_txs = r3b.run(BAR_HEIGHT, tx.clone(), Arc::new(move |ui_context: &mut bar::UiLoop, app_tx: mpsc::Sender<Message>| {
 
         // Set up assets
         let home = env::home_dir().unwrap();
         let font_path = home.join(Path::new(FONT_PATH));
         ui_context.set_fonts(&font_path).unwrap();
 
-        let ic = |id| {
-            icon_text::Icon {
-                w: 24.0,
-                h: 24.0,
-                id: id,
-                padding: 0.0,
-            }
-        };
+        let volume_icons;
+        let battery_icons;
+        {
+            let loader = |p| ui_context.load_image(p);
+            volume_icons = VolumeIcons::new(loader);
+        }
 
-        ui_context.load_image();
+        {
+            let loader = |p| ui_context.load_image(p);
+            battery_icons = BatteryIcons::new(loader);
+        }
 
         let time_widget;
         let battery_widget;
@@ -380,122 +441,168 @@ fn main() {
             ui.theme.border_color = BASE02;
             ui.theme.font_size_medium = 14;
 
-            let id_gen = ui.widget_id_generator();
-
             // set up gauges to display sensor data
-            time_widget = gauges::icon_text::IconText::new(id_gen);
-            battery_widget = gauges::icon_text::IconText::new(id_gen);
-            wifi_widget = gauges::icon_text::IconText::new(id_gen);
+            time_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
+            battery_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
+            wifi_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
             workspace_widget = gauges::button_row::ButtonRow::new(
-                30, BASE03, MAGENTA, id_gen
+                30, BASE03, MAGENTA, ui.widget_id_generator()
             );
-            redkitt = gauges::redkitt::RedKitt::new(id_gen);
-            volume_widget = gauges::icon_text::IconText::new(id_gen);
-            diskusage_widget = gauges::icon_text::IconText::new(id_gen);
+            redkitt = gauges::redkitt::RedKitt::new(ui.widget_id_generator());
+            volume_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
+            diskusage_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
         }
 
-        let state = state.clone();
-
         // TIME
-        ui_context.bind_right(
-            bar::DEFAULT_GAUGE_WIDTH + 10,
-            move |slot_id, mut ui_widgets, _| {
+        {
+            let state = state.clone();
 
-                let state = state.lock().unwrap();
+            ui_context.bind_right(
+                bar::DEFAULT_GAUGE_WIDTH + 10,
+                move |slot_id, mut ui_widgets, _| {
 
-                time_widget.render(icon_text::Opts{
-                    maybe_icon: None,
-                    maybe_text: Some(&state.time),
-                }, slot_id, ui_widgets);
+                    let state = state.lock().unwrap();
 
-            });
+                    time_widget.render(icon_text::Opts{
+                        maybe_icon: None,
+                        maybe_text: Some(&state.time),
+                    }, slot_id, ui_widgets);
+
+                });
+        }
 
         // BATTERY
-        ui_context.bind_right(
-            bar::DEFAULT_GAUGE_WIDTH / 2,
-            move |slot_id, mut ui_widgets, _| {
+        {
+            let state = state.clone();
 
-                let state = state.lock().unwrap();
+            ui_context.bind_right(
+                bar::DEFAULT_GAUGE_WIDTH / 2,
+                move |slot_id, mut ui_widgets, _| {
 
-                battery_widget.render(icon_text::Opts{
-                    maybe_icon: Some(state.battery.icon),
-                    maybe_text: Some(&format!("{}%", state.battery.capacity)),
-                }, slot_id, ui_widgets);
-            });
+                    let state = state.lock().unwrap();
+                    let battery_icon = state.battery.icon.to_struct(&battery_icons);
 
-        // // DISK USAGE
-        // ui_context.bind_right(
-        //     bar::DEFAULT_GAUGE_WIDTH,
-        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
-        //         diskusage_widget.render(icon_text::Opts{
-        //             maybe_icon: None,
-        //             maybe_text: Some(&state.diskusage),
-        //         }, slot_id, ui_widgets);
-        //     });
+                    battery_widget.render(icon_text::Opts{
+                        maybe_icon: Some(battery_icon),
+                        maybe_text: Some(&format!("{}%", state.battery.capacity)),
+                    }, slot_id, ui_widgets);
+                });
+        }
 
-        // // VOLUME
-        // ui_context.bind_right(
-        //     bar::DEFAULT_GAUGE_WIDTH / 2,
-        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+        // DISK USAGE
+        {
+            let state = state.clone();
 
-        //         volume_widget.render(icon_text::Opts{
-        //             maybe_icon: Some(state.volume.icon),
-        //             maybe_text: Some(&format!("{}%", state.volume.percent)),
-        //         }, slot_id, ui_widgets);
-        //     });
+            ui_context.bind_right(
+                bar::DEFAULT_GAUGE_WIDTH,
+                move |slot_id, mut ui_widgets, _| {
 
-        // // WIFI
-        // ui_context.bind_right(
-        //     bar::DEFAULT_GAUGE_WIDTH,
-        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+                    let state = state.lock().unwrap();
 
-        //         let ssid = state.wifi.ssid.clone()
-        //             .unwrap_or("unconnected".to_string());
-        //         let signal_quality = state.wifi.signal.map(dbm_to_percent)
-        //             .unwrap_or(0.);
+                    diskusage_widget.render(icon_text::Opts{
+                        maybe_icon: None,
+                        maybe_text: Some(&state.diskusage),
+                    }, slot_id, ui_widgets);
+                });
+        }
 
-        //         let wifi_line = format!("{}  {}%", ssid, signal_quality);
+        // VOLUME
+        {
+            let state = state.clone();
 
-        //         wifi_widget.render(icon_text::Opts{
-        //             maybe_icon: None,
-        //             maybe_text: Some(&wifi_line),
-        //         }, slot_id, ui_widgets);
-        //     });
+            ui_context.bind_right(
+                bar::DEFAULT_GAUGE_WIDTH / 2,
+                move |slot_id, mut ui_widgets, _| {
 
-        // // WEBPACK SENSOR
-        // ui_context.bind_right(
-        //     bar::DEFAULT_GAUGE_WIDTH,
-        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, dt| {
+                    let state = state.lock().unwrap();
+                    let volume_icon = state.volume.icon.to_struct(&volume_icons);
+                    volume_widget.render(icon_text::Opts{
+                        maybe_icon: Some(volume_icon),
+                        maybe_text: Some(&format!("{}%", state.volume.percent)),
+                    }, slot_id, ui_widgets);
+                });
+        }
 
-        //         let do_animate = match state.webpack {
-        //             WebpackInfo::Compile => true,
-        //             _ => false,
-        //         };
-        //         if let Some(_) = redkitt.render(do_animate, slot_id, ui_widgets, dt) {
-        //             if let Err(e) = tx.send(Message::Webpack(WebpackInfo::Done)) {
-        //                 println!("{}", e); // logging
-        //             }
-        //         }
-        //     });
+        // WIFI
+        {
+            let state = state.clone();
 
-        // // I3 WORKSPACES
-        // ui_context.bind_left(
-        //     bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
-        //     move |state: &MutexGuard<State>, slot_id, mut ui_widgets, _| {
+            ui_context.bind_right(
+                bar::DEFAULT_GAUGE_WIDTH,
+                move |slot_id, mut ui_widgets, _| {
 
-        //         if let Some(ibtn) = workspace_widget
-        //             .render(
-        //                 state.i3.workspaces.clone(),
-        //                 &state.i3.mode,
-        //                 slot_id,
-        //                 ui_widgets) {
+                    let state = state.lock().unwrap();
+                    let ssid = state.wifi.ssid.clone()
+                        .unwrap_or("unconnected".to_string());
+                    let signal_quality = state.wifi.signal.map(dbm_to_percent)
+                        .unwrap_or(0.);
 
-        //                 if let Err(e) = i3workspace.change_workspace(ibtn + 1) {
-        //                     println!("{}", e); // logging
-        //                 }
-        //             }
-        //     });
+                    let wifi_line = format!("{}  {}%", ssid, signal_quality);
+
+                    wifi_widget.render(icon_text::Opts{
+                        maybe_icon: None,
+                        maybe_text: Some(&wifi_line),
+                    }, slot_id, ui_widgets);
+                });
+        }
+
+        // WEBPACK SENSOR
+        {
+            let state = state.clone();
+            ui_context.bind_right(
+                bar::DEFAULT_GAUGE_WIDTH,
+                move |slot_id, mut ui_widgets, dt| {
+
+                    let state = state.lock().unwrap();
+                    let do_animate = match state.webpack {
+                        WebpackInfo::Compile => true,
+                        _ => false,
+                    };
+                    if let Some(_) = redkitt.render(
+                        do_animate, slot_id, ui_widgets, dt
+                    ) {
+                        let done_msg = Message::Webpack(WebpackInfo::Done);
+                        if let Err(e) = app_tx.send(done_msg) {
+                            println!("{}", e); // logging
+                        }
+                    }
+                });
+        }
+
+        // I3 WORKSPACES
+        {
+            let state = state.clone();
+
+            ui_context.bind_left(
+                bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
+                move |slot_id, mut ui_widgets, _| {
+
+                    let state = state.lock().unwrap();
+                    let maybe_clicked = workspace_widget
+                        .render(
+                            state.i3.workspaces.clone(),
+                            &state.i3.mode,
+                            slot_id,
+                            ui_widgets);
+
+
+                    if let Some(ith_btn) = maybe_clicked {
+                        let w_index = ith_btn + 1; // 1 indexed
+                        let r = i3workspace::I3Workspace::change_workspace(w_index);
+                        if let Err(e) = r {
+                                println!("{}", e); // TODO logging
+                            }
+                        }
+                });
+        }
     }));
+
+    let listener = store.listen(ui_txs);
+
+    // if there is an exit timer set it.
+    if let Some(seconds) = exit_seconds {
+        set_exit_timer(seconds as u64, tx.clone());
+    }
 
     listener.join();
 }

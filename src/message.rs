@@ -20,14 +20,13 @@ pub enum Message {
     Workspaces(Vec<Workspace>),
 }
 
-
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum WebpackInfo {
     Compile,
     Done,
 }
 
-/// Data for `WebpackEvent`.
+// Data for `WebpackEvent`.
 impl FromStr for WebpackInfo {
     type Err = BarError;
 

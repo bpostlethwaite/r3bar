@@ -2,11 +2,15 @@ use conrod::backend::glium::glium::{DisplayBuild, Surface};
 use conrod::backend::glium::glium;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
+use std::sync::mpsc;
 use error::BarError;
 use image;
-use std::path::{Path};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc};
 use std;
+use self::glium::glutin::VirtualKeyCode as KeyCode;
+use self::glium::glutin::Event::KeyboardInput;
+use std::marker::{Send, Sync};
 
 // 1. get ui inside thread
 // 2. User Mutex instead of MutexGaurd and unlock Mutex in binder callback
@@ -57,56 +61,62 @@ pub struct Bar {}
 
 impl Bar {
 
-    pub fn run(&self, height: u32, ui_renderer: Arc<Fn(&mut UiLoop) + std::marker::Sync +  std::marker::Send + 'static>) {
+    pub fn run<F, T>(&self,
+                  height: u32,
+                  app_tx: mpsc::Sender<T>,
+                  ui_renderer: Arc<F>) -> Vec<mpsc::Sender<DispResponse>>
+        where F: Fn(&mut UiLoop, mpsc::Sender<T>) + 'static + Sync + Send,
+              T: 'static + Sync + Send
+    {
 
         let monitors = glium::glutin::get_available_monitors();
+        let mut ui_txs = Vec::new();
+
         for monitor_id in monitors {
+            let app_tx = app_tx.clone();
 
-            // A channel to send events from the main `winit` thread to the
-            // conrod thread.
-            let (event_tx, event_rx) = std::sync::mpsc::channel();
-
-            // A rendezvous (blocking) channel to send display info & proxy from
-            // the main `winit` thread to the conrod thread. The window proxy will
-            // allow conrod to wake up the `winit::Window` for rendering.
-            let (display_tx, display_rx) = std::sync::mpsc::sync_channel(0);
+            // A channel to send events from the display thread to the conrod thread.
+            let (ui_tx, ui_rx) = mpsc::channel();
+            ui_txs.push(ui_tx.clone());
 
             // A channel to send `render::Primitive`s from the conrod thread to
             // the `winit thread.
-            let (render_tx, render_rx) = std::sync::mpsc::channel();
+            let (disp_tx, disp_rx) = mpsc::channel();
 
             std::thread::spawn(move || {
                 DisplayLoop::run(
-                    height, monitor_id, display_tx, event_tx, render_rx
+                    height, monitor_id, ui_tx, disp_rx
                 );
             });
-
             let renderer = ui_renderer.clone();
             std::thread::spawn(move || {
                 UiLoop::run(
-                    renderer, display_rx, event_rx, render_tx
+                    renderer, ui_rx, disp_tx, app_tx
                 );
             });
         }
+
+        ui_txs
     }
 }
 
-struct DisplayInfo {
+pub struct DisplayInfo {
     proxy: glium::glutin::WindowProxy,
     width: u32,
     height: u32,
 }
 
-enum Request {
+pub enum UiRequest {
     DisplayInfo,
-    ImageId,
+    ImageId(PathBuf),
     Primitives(conrod::render::OwnedPrimitives),
 }
 
-enum Response {
+pub enum DispResponse {
     DisplayInfo(DisplayInfo),
     Event(conrod::event::Input),
     ImageId(conrod::image::Id),
+    WakeDisplay,
 }
 
 
@@ -118,9 +128,8 @@ struct DisplayLoop {
 impl DisplayLoop {
     fn run(height: u32,
            monitor_id: glium::glutin::MonitorId,
-           display_tx: std::sync::mpsc::SyncSender<DisplayInfo>,
-           event_tx: std::sync::mpsc::Sender<conrod::event::Input>,
-           render_rx: std::sync::mpsc::Receiver<conrod::render::OwnedPrimitives>) {
+           tx: mpsc::Sender<DispResponse>,
+           rx: mpsc::Receiver<UiRequest>) {
 
         // Construct the window. The starting width is overridden in the
         // patched winit library. To get the actual width we ask window.
@@ -130,23 +139,12 @@ impl DisplayLoop {
             .with_dimensions(win_width, height);
 
         let display = builder.build_glium().unwrap();
-        let dloop = DisplayLoop{
+        let dloop = &mut DisplayLoop{
             display: display,
             image_map: conrod::image::Map::new(),
         };
 
-        let window_width = dloop.window_width();
-        let proxy = dloop.display.get_window().unwrap().create_window_proxy();
-
-        let info = DisplayInfo{
-            proxy: proxy,
-            width: window_width,
-            height: height,
-        };
-
-        display_tx.send(info).unwrap();
-
-        dloop.process_events(event_tx, render_rx);
+        dloop.process_events(tx, rx);
     }
 
     pub fn load_image<P>(&mut self, path: P) -> conrod::image::Id
@@ -155,17 +153,35 @@ impl DisplayLoop {
         let path = path.as_ref();
         let rgba_image = image::open(&Path::new(&path)).unwrap().to_rgba();
         let image_dimensions = rgba_image.dimensions();
-        let raw_image = glium::texture::RawImage2d::from_raw_rgba_reversed(rgba_image.into_raw(),
-                                                                           image_dimensions);
-        let texture = glium::texture::SrgbTexture2d::new(&self.display, raw_image).unwrap();
+        let raw_image = glium::texture::RawImage2d::from_raw_rgba_reversed(
+            rgba_image.into_raw(), image_dimensions
+        );
+        let texture = glium::texture::SrgbTexture2d::new(
+            &self.display, raw_image
+        ).unwrap();
         self.image_map.insert(texture)
     }
 
-    fn process_events(&self,
-                      event_tx: std::sync::mpsc::Sender<conrod::event::Input>,
-                      render_rx: std::sync::mpsc::Receiver<conrod::render::OwnedPrimitives>) {
+    fn display_info(&self) -> DisplayInfo {
+        let (width, height) = self.window_dims();
+        let proxy = self.display.get_window().unwrap().create_window_proxy();
+
+        DisplayInfo{
+            proxy: proxy,
+            width: width,
+            height: height,
+        }
+    }
+
+    fn process_events(&mut self,
+                      tx: mpsc::Sender<DispResponse>,
+                      rx: mpsc::Receiver<UiRequest>) {
+
         let mut last_update = std::time::Instant::now();
-        let mut renderer = conrod::backend::glium::Renderer::new(&self.display).unwrap();
+        let mut renderer = conrod::backend::glium::Renderer::new(
+            &self.display
+        ).unwrap();
+
         'main: loop {
 
             // We don't want to loop any faster than 60 FPS, so wait until it has been at least
@@ -193,12 +209,12 @@ impl DisplayLoop {
                 if let Some(event) = conrod::backend::winit::convert(
                     event.clone(), &self.display
                 ) {
-                    event_tx.send(event).unwrap();
+                    tx.send(DispResponse::Event(event)).unwrap();
                 }
 
                 match event {
                     // Break from the loop upon `Escape`.
-                    glium::glutin::Event::KeyboardInput(_, _, Some(glium::glutin::VirtualKeyCode::Escape)) |
+                    KeyboardInput(_, _, Some(KeyCode::Escape)) |
                     glium::glutin::Event::Closed =>
                         break 'main,
                     _ => {},
@@ -207,15 +223,41 @@ impl DisplayLoop {
 
             // Draw the most recently received `conrod::render::Primitives`
             // sent from the `Ui`.
-            if let Ok(mut primitives) = render_rx.try_recv() {
-                while let Ok(newest) = render_rx.try_recv() {
-                    primitives = newest;
-                }
+            // if let Ok(mut primitives) = rx.try_recv() {
+            //     while let Ok(newest) = rx.try_recv() {
+            //         primitives = newest;
+            //     }
 
+                // Process msgs until all msgs have been consumed and we have
+                // obtained at least one primitive to render.
+                // Only draw the last primitive from the queue (ignore the others).
+            let mut maybe_primitives = None;
+            while let Ok(resp) = rx.try_recv() {
+                match resp {
+                    UiRequest::Primitives(next_primitives) => {
+                        maybe_primitives = Some(next_primitives);
+                    },
+
+                    UiRequest::DisplayInfo => {
+                        let info_resp = self.display_info();
+                        tx.send(DispResponse::DisplayInfo(info_resp)).unwrap();
+                    },
+
+                    UiRequest::ImageId(path) => {
+                        let id = self.load_image(path);
+                        tx.send(DispResponse::ImageId(id)).unwrap();
+                    },
+                }
+            }
+
+            if let Some(primitives) = maybe_primitives {
                 renderer.fill(&self.display, primitives.walk(), &self.image_map);
+
                 let mut target = self.display.draw();
                 target.clear_color(0.0, 0.0, 0.0, 1.0);
+
                 renderer.draw(&self.display, &mut target, &self.image_map).unwrap();
+
                 target.finish().unwrap();
             }
 
@@ -224,17 +266,14 @@ impl DisplayLoop {
     }
 
 
-    fn window_width(&self) -> u32 {
-        let mut win_width = 0;
-        {
-            let window = self.display.get_window();
-            if let Some(window) = window {
-                if let Some((w, _)) = window.get_inner_size() {
-                    win_width = w;
-                };
-            }
+    fn window_dims(&self) -> (u32, u32) {
+        let window = self.display.get_window();
+        if let Some(window) = window {
+            if let Some(dims) = window.get_inner_size() {
+                return dims
+            };
         }
-        win_width
+        (0, 0)
     }
 }
 
@@ -243,24 +282,43 @@ pub struct UiLoop {
     display_info: DisplayInfo,
     lefts: Elems,
     rights: Elems,
+    rx: mpsc::Receiver<DispResponse>,
+    tx: mpsc::Sender<UiRequest>
 }
 
 impl UiLoop {
-    fn run(ui_renderer: Arc<Fn(&mut UiLoop) + std::marker::Sync + std::marker::Send + 'static>,
-           display_rx: std::sync::mpsc::Receiver<DisplayInfo>,
-           event_rx: std::sync::mpsc::Receiver<conrod::event::Input>,
-           render_tx: std::sync::mpsc::Sender<conrod::render::OwnedPrimitives>) {
+    fn run<F, T>(ui_renderer: Arc<F>,
+              rx: mpsc::Receiver<DispResponse>,
+              tx: mpsc::Sender<UiRequest>,
+              maybe_app_tx: mpsc::Sender<T>,
+    )
+        where F: 'static + Sync + Send + Fn(&mut UiLoop, mpsc::Sender<T>),
+              T: Sync + Send
+    {
 
-        let d = display_rx.recv().unwrap();
 
-        let ui_loop = UiLoop{
-            ui: conrod::UiBuilder::new([d.width as f64, d.height as f64]).build(),
-            display_info: d,
-            lefts: Vec::new(),
-            rights: Vec::new(),
-        };
+        // Send request for display info.
+        tx.send(UiRequest::DisplayInfo).unwrap();
 
-        ui_loop.process_ui(ui_renderer, event_rx, render_tx);
+        // continue to listen until we receive it
+        while let Ok(resp) = rx.recv() {
+            match resp {
+                DispResponse::DisplayInfo(info) => {
+                    let dims = [info.width as f64, info.height as f64];
+                    let ui_loop = UiLoop{
+                        ui: conrod::UiBuilder::new(dims).build(),
+                        display_info: info,
+                        lefts: Vec::new(),
+                        rights: Vec::new(),
+                        rx: rx,
+                        tx: tx,
+                    };
+                    ui_loop.process_ui(ui_renderer, maybe_app_tx);
+                    break;
+                }
+                _ => continue,
+            }
+        }
     }
 
     pub fn set_fonts(&mut self, font_path: &Path) -> Result<(), BarError> {
@@ -269,12 +327,31 @@ impl UiLoop {
     }
 
     fn gen_id(&mut self) -> Id {
-        let mut generator = &mut self.ui.widget_id_generator();
-        generator.next()
+        self.ui.widget_id_generator().next()
+    }
+
+    pub fn load_image(&self, p: PathBuf) -> Result<conrod::image::Id, BarError> {
+
+        self.tx.send(UiRequest::ImageId(p)).unwrap();
+
+        // wake up display thread in case it is blocking
+        self.display_info.proxy.wakeup_event_loop();
+
+        // continue to listen until we receive it
+        while let Ok(resp) = self.rx.recv() {
+            match resp {
+                DispResponse::ImageId(id) => {
+                    return Ok(id);
+                }
+                _ => continue,
+            }
+        }
+
+        return Err(BarError::Bar(format!("{}", "Some damn image id error")));
     }
 
     pub fn bind_left<F>(&mut self, width: u32, bind: F) -> &Self
-        where F: 'static + std::marker::Send + Fn(Id, &mut UiCell, Option<f64>)
+        where F: 'static + Send + Fn(Id, &mut UiCell, Option<f64>)
     {
         let id = self.gen_id();
 
@@ -288,7 +365,7 @@ impl UiLoop {
     }
 
     pub fn bind_right<F>(&mut self, width: u32, bind: F) -> &Self
-        where F: 'static + std::marker::Send + Fn(Id, &mut UiCell, Option<f64>)
+        where F: 'static + Send + Fn(Id, &mut UiCell, Option<f64>)
     {
         let id = self.gen_id();
 
@@ -302,10 +379,12 @@ impl UiLoop {
         self
     }
 
-    fn process_ui(mut self,
-                  ui_renderer: Arc<Fn(&mut UiLoop) + std::marker::Sync + 'static>,
-                  event_rx: std::sync::mpsc::Receiver<conrod::event::Input>,
-                  render_tx: std::sync::mpsc::Sender<conrod::render::OwnedPrimitives>) {
+    fn process_ui<F, T>(mut self,
+                     ui_renderer: Arc<F>,
+                     app_tx: mpsc::Sender<T>)
+        where F: 'static + Sync + Send + Fn(&mut UiLoop, mpsc::Sender<T>),
+              T: Sync + Send
+    {
 
         // Write the requested widths into a section array. These widths
         // will be configurable but for now set to a default.
@@ -317,9 +396,8 @@ impl UiLoop {
             master_id = generator.next();
             gap_id = generator.next();
         }
-
         {
-            ui_renderer(&mut self);
+            ui_renderer(&mut self, app_tx);
         }
 
         let mut elems: Elems = self.lefts;
@@ -339,16 +417,28 @@ impl UiLoop {
 
             // Collect any pending events.
             let mut events = Vec::new();
-            while let Ok(event) = event_rx.try_recv() {
-                events.push(event);
+            while let Ok(event) = self.rx.try_recv() {
+                match event {
+                    DispResponse::DisplayInfo(info) => self.display_info = info,
+                    DispResponse::ImageId(_) => (),
+                    DispResponse::Event(event) => events.push(event),
+                    DispResponse::WakeDisplay => {
+                        self.display_info.proxy.wakeup_event_loop();
+                    },
+                }
             }
 
             // If there are no events pending, wait for them.
             if events.is_empty() || !needs_update {
-                match event_rx.recv() {
-                    Ok(event) => events.push(event),
+                match self.rx.recv() {
+                    Ok(DispResponse::DisplayInfo(info)) => self.display_info = info,
+                    Ok(DispResponse::ImageId(_)) => (),
+                    Ok(DispResponse::Event(event)) => events.push(event),
+                    Ok(DispResponse::WakeDisplay) => {
+                        self.display_info.proxy.wakeup_event_loop();
+                    },
                     Err(_) => break 'conrod,
-                };
+                }
             }
 
             needs_update = false;
@@ -406,7 +496,7 @@ impl UiLoop {
             // Render the `Ui` to a list of primitives that we can send to the
             // main thread for display.
             if let Some(primitives) = self.ui.draw_if_changed() {
-                if render_tx.send(primitives.owned()).is_err() {
+                if self.tx.send(UiRequest::Primitives(primitives.owned())).is_err() {
                     break 'conrod;
                 }
                 // Wakeup `winit` for rendering.
@@ -414,56 +504,5 @@ impl UiLoop {
             }
         }
 
-    }
-}
-
-pub struct EventLoop {
-    ui_needs_update: bool,
-    last_update: std::time::Instant,
-}
-
-impl EventLoop {
-
-    pub fn new() -> Self {
-        EventLoop {
-            last_update: std::time::Instant::now(),
-            ui_needs_update: true,
-        }
-    }
-
-    /// Produce an iterator yielding all available events.
-    pub fn next(&mut self, display: &glium::Display) -> Vec<glium::glutin::Event> {
-        // We don't want to loop any faster than 60 FPS, so wait until it has been
-        // at least 16ms since the last yield.
-        let last_update = self.last_update;
-        let sixteen_ms = std::time::Duration::from_millis(16);
-        let duration_since_last_update = std::time::Instant::now().duration_since(last_update);
-        if duration_since_last_update < sixteen_ms {
-            std::thread::sleep(sixteen_ms - duration_since_last_update);
-        }
-
-        // Collect all pending events.
-        let mut events = Vec::new();
-        events.extend(display.poll_events());
-
-        // If there are no events and the `Ui` does not need updating,
-        // wait for the next event.
-        if events.is_empty() && !self.ui_needs_update {
-            events.extend(display.wait_events().next());
-        }
-
-        self.ui_needs_update = false;
-        self.last_update = std::time::Instant::now();
-
-        events
-    }
-
-    // Notifies the event loop that the `Ui` requires another update whether
-    // or not there are any pending events.
-    //
-    // This is primarily used on the occasion that some part of the `Ui` is
-    // still animating and requires further updates to do so.
-    pub fn needs_update(&mut self) {
-        self.ui_needs_update = true;
     }
 }
