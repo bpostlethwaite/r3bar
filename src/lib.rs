@@ -14,3 +14,4 @@ pub mod error;
 pub mod gauges;
 pub mod r3ipc;
 pub mod sensors;
+pub mod display;

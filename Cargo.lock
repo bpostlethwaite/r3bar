@@ -1017,7 +1017,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "winit"
 version = "0.5.11"
-source = "git+https://github.com/bpostlethwaite/winit?branch=x11-statusbar-patch#f3590d148299825fdf92d90936ebc3eefae240a9"
+source = "git+https://github.com/bpostlethwaite/winit?branch=x11-statusbar-patch#53085f3c0ccdf9a57801ccf230fa0a0c20b5c215"
 dependencies = [
  "android_glue 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "cgl 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",

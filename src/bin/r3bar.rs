@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 use std::{env, thread};
+use std::collections::HashMap;
 
 static FONT_PATH: &'static str = "projects/r3bar/assets/fonts/Roboto Mono for Powerline.ttf";
 static BATTERY_PATH: &'static str = "projects/r3bar/assets/icons/battery";
@@ -155,7 +156,7 @@ struct Volume {
 
 struct I3 {
     mode: String,
-    workspaces: Vec<(String, color::Color)>,
+    workspaces: HashMap<String, Vec<(String, color::Color)>>,
 }
 
 struct State {
@@ -210,7 +211,8 @@ impl Store {
             }
 
             Message::Workspaces(workspaces) => {
-                let mut work_vec = Vec::new();
+                let mut monitors: HashMap<String, Vec<(String, color::Color)>> = HashMap::new();
+
                 for workspace in workspaces {
                     let mut color;
                     if workspace.focused {
@@ -221,10 +223,17 @@ impl Store {
                     if workspace.urgent {
                         color = color.complement();
                     }
+
+                    let mut work_vec = match monitors.get(&workspace.output) {
+                        Some(work_vec) => work_vec.clone(),
+                        None => Vec::new(),
+                    };
+
                     work_vec.push((workspace.name.clone(), color));
+                    monitors.insert(workspace.output, work_vec);
                 }
 
-                state.i3.workspaces = work_vec;
+                state.i3.workspaces = monitors;
             }
 
             Message::I3Mode(mode) => {
@@ -356,7 +365,7 @@ fn main() {
         },
         i3: I3 {
             mode: "".to_owned(),
-            workspaces: Vec::new(),
+            workspaces: HashMap::new(),
         },
         webpack: WebpackInfo::Done,
         wifi: sensors::wifi::WifiStatus::new(53.),
@@ -405,6 +414,9 @@ fn main() {
         let home = env::home_dir().unwrap();
         let font_path = home.join(Path::new(FONT_PATH));
         ui_context.set_fonts(&font_path).unwrap();
+
+        // which monitor are we on?
+        let output = ui_context.output.clone();
 
         let volume_icons;
         let battery_icons;
@@ -576,21 +588,27 @@ fn main() {
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
+                    let workspaces = match state.i3.workspaces.get(&output) {
+                        Some(workspaces) => workspaces.clone(),
+                        None => Vec::new(),
+                    };
+
                     let maybe_clicked = workspace_widget
                         .render(
-                            state.i3.workspaces.clone(),
+                            workspaces,
                             &state.i3.mode,
                             slot_id,
                             ui_widgets);
 
 
-                    if let Some(ith_btn) = maybe_clicked {
-                        let w_index = ith_btn + 1; // 1 indexed
-                        let r = i3workspace::I3Workspace::change_workspace(w_index);
+                    if let Some(workspace_name) = maybe_clicked {
+                        let r = i3workspace::I3Workspace::change_workspace(
+                            workspace_name, output.clone()
+                        );
                         if let Err(e) = r {
-                                println!("{}", e); // TODO logging
-                            }
+                            println!("{}", e); // TODO logging
                         }
+                    }
                 });
         }
     }));

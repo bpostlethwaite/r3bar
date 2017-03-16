@@ -15,8 +15,8 @@ impl I3Workspace {
         I3Workspace{}
     }
 
-    pub fn change_workspace(workspace_number: i64) -> Result<(), BarError> {
-        let cmd = format!("workspace {}", workspace_number);
+    pub fn change_workspace(workspace: String, output: String) -> Result<(), BarError> {
+        let cmd = format!("workspace {}, move workspace to {}", workspace, output);
 
         let mut connection = I3Connection::connect()?;
         let outcomes = connection.command(&cmd).ok().expect("failed to send command").outcomes;
@@ -46,20 +46,20 @@ impl Sensor for I3Workspace {
         Ok(thread::spawn(move || {
 
             // only ask for all workspaces when we detect a related event
-            let subs = [Subscription::Workspace, Subscription::Mode];
+            let subs = [Subscription::Workspace, Subscription::Mode, Subscription::Window];
             let mut listener = I3EventListener::connect().unwrap();
             listener.subscribe(&subs).unwrap();
 
             for event in listener.listen() {
-                match event.unwrap() {
-                    Event::WorkspaceEvent(_) => {
+                match event {
+                    Ok(Event::WorkspaceEvent(_)) | Ok(Event::WindowEvent(_)) => {
                         let w = connection.get_workspaces().unwrap();
                         tx.send(Message::Workspaces(w.workspaces)).unwrap();
                     }
-                    Event::ModeEvent(e) => {
+                    Ok(Event::ModeEvent(e)) => {
                         tx.send(Message::I3Mode(e.change)).unwrap();
                     }
-                    _ => unreachable!(),
+                    _ => println!("bad things from i3workspace"),
                 }
             }
             Ok(())

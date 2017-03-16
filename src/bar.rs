@@ -1,13 +1,15 @@
-use conrod::backend::glium::glium::{DisplayBuild, Surface};
 use conrod::backend::glium::glium;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
+use display::display;
 use error::BarError;
 use image;
 use self::glium::glutin::Event::KeyboardInput;
 use self::glium::glutin::VirtualKeyCode as KeyCode;
+use self::glium::{DisplayBuild, Surface};
 use std::marker::{Send, Sync};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc};
 use std::time::Duration;
@@ -70,10 +72,10 @@ impl Bar {
               T: 'static + Sync + Send
     {
 
-        let monitors = glium::glutin::get_available_monitors();
         let mut ui_txs = Vec::new();
 
-        for monitor_id in monitors {
+        let outputs = vec!["eDP1", "HDMI2"];
+        for output in outputs {
             let app_tx = app_tx.clone();
 
             // A channel to send events from the display thread to the conrod thread.
@@ -86,13 +88,13 @@ impl Bar {
 
             std::thread::spawn(move || {
                 DisplayLoop::run(
-                    height, monitor_id, ui_tx, disp_rx
+                    height, output.to_owned(), ui_tx, disp_rx
                 );
             });
             let renderer = ui_renderer.clone();
             std::thread::spawn(move || {
                 UiLoop::run(
-                    renderer, ui_rx, disp_tx, app_tx
+                    renderer, output.to_owned(), ui_rx, disp_tx, app_tx
                 );
             });
         }
@@ -122,24 +124,37 @@ pub enum DispResponse {
 
 
 struct DisplayLoop {
-    display: glium::backend::glutin_backend::GlutinFacade,
+    display: display::R3Display,
     image_map: conrod::image::Map<glium::texture::SrgbTexture2d>,
 }
 
 impl DisplayLoop {
     fn run(height: u32,
-           monitor_id: glium::glutin::MonitorId,
+           output: String,
            tx: mpsc::Sender<DispResponse>,
            rx: mpsc::Receiver<UiRequest>) {
 
         // Construct the window. The starting width is overridden in the
         // patched winit library. To get the actual width we ask window.
-        let win_width = 0;
-        let builder = glium::glutin::WindowBuilder::new()
-            .with_vsync()
-            .with_dimensions(win_width, height);
 
-        let display = builder.build_glium().unwrap();
+        let builder = match output.as_ref() {
+            "eDP1" => {
+                glium::glutin::WindowBuilder::new()
+                    .with_vsync()
+                    .with_decorations(true)
+                    .with_dimensions(1920, height)
+            },
+            "HDMI2" => {
+                glium::glutin::WindowBuilder::new()
+                    .with_vsync()
+                    .with_decorations(false)
+                    .with_dimensions(2560, height)
+            },
+            _ => return
+        };
+
+        let window = builder.build().unwrap();
+        let display = display::R3Display::new(Rc::new(window));
         let dloop = &mut DisplayLoop{
             display: display,
             image_map: conrod::image::Map::new(),
@@ -165,7 +180,7 @@ impl DisplayLoop {
 
     fn display_info(&self) -> DisplayInfo {
         let (width, height) = self.window_dims();
-        let proxy = self.display.get_window().unwrap().create_window_proxy();
+        let proxy = self.display.get_window().create_window_proxy();
 
         DisplayInfo{
             proxy: proxy,
@@ -208,7 +223,7 @@ impl DisplayLoop {
                 // Use the `winit` backend feature to convert the winit event
                 // to a conrod one.
                 if let Some(event) = conrod::backend::winit::convert(
-                    event.clone(), &self.display
+                    event.clone(), self.display.get_window()
                 ) {
                     tx.send(DispResponse::Event(event)).unwrap();
                 }
@@ -297,6 +312,7 @@ impl UpdateConfig {
 pub struct UiLoop {
     pub ui: conrod::Ui,
     pub display_info: DisplayInfo,
+    pub output: String,
     lefts: Elems,
     rights: Elems,
     rx: mpsc::Receiver<DispResponse>,
@@ -305,9 +321,10 @@ pub struct UiLoop {
 
 impl UiLoop {
     fn run<F, T>(ui_renderer: Arc<F>,
-              rx: mpsc::Receiver<DispResponse>,
-              tx: mpsc::Sender<UiRequest>,
-              maybe_app_tx: mpsc::Sender<T>,
+                 output: String,
+                 rx: mpsc::Receiver<DispResponse>,
+                 tx: mpsc::Sender<UiRequest>,
+                 maybe_app_tx: mpsc::Sender<T>,
     )
         where F: 'static + Sync + Send + Fn(&mut UiLoop, mpsc::Sender<T>),
               T: Sync + Send
@@ -327,6 +344,7 @@ impl UiLoop {
                         display_info: info,
                         lefts: Vec::new(),
                         rights: Vec::new(),
+                        output: output,
                         rx: rx,
                         tx: tx,
                     };
