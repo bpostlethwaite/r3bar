@@ -107,6 +107,7 @@ fn to_message(msgtype: u32, payload: String) -> Result<Message, BarError> {
             format!("r3ipc: reserved code range {}", c))),
         r3ipc::WEBPACK => Ok(Message::Webpack(WebpackInfo::from_str(&payload)?)),
         r3ipc::UNPARK => Ok(Message::Unpark),
+        r3ipc::TICKER => Ok(Message::Ticker(payload)),
         _ => Err(BarError::Bar(
             format!("r3ipc: msgtype '{}' not implemented", msgtype))),
     }
@@ -116,7 +117,7 @@ fn to_message(msgtype: u32, payload: String) -> Result<Message, BarError> {
 
 // see https://i3wm.org/docs/ipc.html#_command_reply
 fn reply_ok<'a>() -> String {
-    return "[{ \"success\": true }]".to_string();
+    return "[{ \"success\": true }]".to_owned();
 }
 
 // see https://i3wm.org/docs/ipc.html#_command_reply

@@ -1,6 +1,6 @@
 use conrod::backend::glium::glium;
 use conrod::widget::{Id, Canvas};
-use conrod::{self, Widget, UiCell};
+use conrod::{self, Positionable, Sizeable, Widget, UiCell};
 use error::BarError;
 use image;
 use self::glium::glutin::Event::KeyboardInput;
@@ -12,6 +12,7 @@ use std::sync::mpsc;
 use std::sync::{Arc};
 use std::time::Duration;
 use std;
+use widgets::sep::Sep;
 
 // 1. get ui inside thread
 // 2. User Mutex instead of MutexGaurd and unlock Mutex in binder callback
@@ -19,42 +20,61 @@ use std;
 
 // TODO Height should be detected by font height
 pub const DEFAULT_GAUGE_WIDTH: u32 = 200;
+pub const DEFAULT_SEP_WIDTH: u32 = 24;
 
-struct Gauge {
+struct Binder {
     bind: Box<Fn(Id, &mut UiCell, &mut UpdateConfig)>,
-    width: u32,
+    layout: super::Layout,
     id: Id,
 }
 
-struct Spacer {
-    width: u32,
-    id: Id,
+trait BinderList {
+    fn to_widths(&self, &conrod::Ui, Vec<u32>) -> Vec<u32>;
 }
 
-enum Elem {
-    Spacer(Spacer),
-    Gauge(Gauge),
-}
+impl <'a> BinderList for &'a Vec<Binder> {
+    fn to_widths(&self, ui: &conrod::Ui, prev: Vec<u32>) -> Vec<u32> {
+        self.iter().zip(prev)
+            .map(|(&Binder { ref layout, id, .. }, pw)| {
+                let mut w = match layout.width {
+                    Some(w) => w,
+                    None => {
 
-type Elems = Vec<Elem>;
+                        // if a width isn't set get the width from node contents
+                        let bbox = ui.kids_bounding_box(id);
 
-trait ElemList {
-    fn width(&self) -> u32;
-}
+                        // TODO also consider effects of padding & margins?
+                        match bbox.map(|rect| rect.x.len()) {
+                            Some(w) => w as u32,
+                            None => DEFAULT_GAUGE_WIDTH,
+                        }
+                    }
+                };
 
-impl ElemList for Elems {
-    fn width(&self) -> u32 {
-        let mut total_width = 0;
+                if let Some(min_w) = layout.minwidth {
+                    if w < min_w {
+                        w = min_w;
+                    }
+                }
 
-        for elem in self.iter() {
-            let width = match elem {
-                &Elem::Gauge(Gauge { width, .. }) => width,
-                &Elem::Spacer(Spacer { width, .. }) => width,
-            };
+                if let Some(max_w) = layout.maxwidth {
+                    if w > max_w {
+                        w = max_w;
+                    }
+                }
 
-            total_width = total_width + width;
-        }
-        total_width
+                // If the difference between values is less than or equal to the
+                // smoothing delta keep the greater of the values.
+                if let Some(dw) = layout.smoothwidth {
+                    let diff = w as i32 - pw as i32;
+                    if diff.abs() as u32 <= dw {
+                        w = std::cmp::max(w, pw);
+                    }
+                }
+
+                return w;
+
+            }).collect::<Vec<u32>>()
     }
 }
 
@@ -305,15 +325,13 @@ impl UpdateConfig {
 }
 
 
-
 pub struct UiLoop {
     pub ui: conrod::Ui,
     pub display_info: DisplayInfo,
     pub output: String,
-    lefts: Elems,
-    rights: Elems,
+    binders: Vec<Binder>,
     rx: mpsc::Receiver<DispResponse>,
-    tx: mpsc::Sender<UiRequest>
+    tx: mpsc::Sender<UiRequest>,
 }
 
 impl UiLoop {
@@ -339,8 +357,7 @@ impl UiLoop {
                     let ui_loop = UiLoop{
                         ui: conrod::UiBuilder::new(dims).build(),
                         display_info: info,
-                        lefts: Vec::new(),
-                        rights: Vec::new(),
+                        binders: Vec::new(),
                         output: output,
                         rx: rx,
                         tx: tx,
@@ -382,33 +399,31 @@ impl UiLoop {
         return Err(BarError::Bar(format!("{}", "Some damn image id error")));
     }
 
-    pub fn bind_left<F>(&mut self, width: u32, bind: F) -> &Self
+    pub fn bind<F>(&mut self, layout: super::Layout, bind: F) -> &Self
         where F: 'static + Send + Fn(Id, &mut UiCell, &mut UpdateConfig)
     {
         let id = self.gen_id();
 
-        self.lefts.push(Elem::Gauge(Gauge {
+        self.binders.push(Binder {
             bind: Box::new(bind),
-            width: width,
+            layout: layout,
             id: id,
-        }));
+        });
 
         self
     }
 
-    pub fn bind_right<F>(&mut self, width: u32, bind: F) -> &Self
-        where F: 'static + Send + Fn(Id, &mut UiCell, &mut UpdateConfig)
-    {
-        let id = self.gen_id();
-
-        self.rights.insert(0,
-                           Elem::Gauge(Gauge {
-                               bind: Box::new(bind),
-                               width: width,
-                               id: id,
-                           }));
-
-        self
+    fn make_sep(slot_id: Id, sep_id: Id) -> Binder {
+        Binder{
+            bind: Box::new(move |slot_id, mut ui_widgets, _| {
+                Sep::new()
+                    .wh_of(slot_id)
+                    .middle_of(slot_id)
+                    .set(sep_id, ui_widgets);
+            }),
+            layout: super::Layout::new().with_width(Some(DEFAULT_SEP_WIDTH)),
+            id: slot_id,
+        }
     }
 
     fn process_ui<F, T>(mut self,
@@ -420,28 +435,50 @@ impl UiLoop {
 
         // Write the requested widths into a section array. These widths
         // will be configurable but for now set to a default.
-        let master_id;
-        let gap_id;
-        {
-            let mut generator = self.ui.widget_id_generator();
-
-            master_id = generator.next();
-            gap_id = generator.next();
-        }
         {
             ui_renderer(&mut self, app_tx);
         }
 
-        let mut elems: Elems = self.lefts;
+        let master_id;
+        let spacer_id;
+        let mut binders = Vec::new();
+        let mut left_i = 0;
+        {
+            let mut generator = self.ui.widget_id_generator();
 
-        // insert an unbound padding entry between rights and lefts
-        elems.push(Elem::Spacer(Spacer {
-            width: 0, // this will be adjusted in the rendering phase
-            id: gap_id,
-        }));
+            master_id = generator.next();
+            spacer_id = generator.next();
 
-        // concat the right binders
-        elems.extend(self.rights);
+            for b in self.binders {
+                match b.layout.orientation {
+                    super::Orientation::Left => {
+                        binders.insert(left_i, b);
+                        binders.insert(
+                            left_i + 1,
+                            UiLoop::make_sep(generator.next(), generator.next())
+                        );
+                        left_i += 2;
+                    },
+                    super::Orientation::Right => {
+                        binders.insert(
+                            left_i,
+                            UiLoop::make_sep(generator.next(), generator.next())
+                        );
+                        binders.insert(left_i + 1, b);
+                    },
+                }
+            }
+        }
+
+        let binders = &binders;
+        let spacer_i = left_i;
+
+        let mut widths: Vec<u32> = Vec::with_capacity(binders.len() as usize);
+        for _ in 0..binders.len() {
+            widths.push(0);
+        }
+
+        widths = binders.to_widths(&self.ui, widths);
 
         let mut updater = UpdateConfig{
             needs_update: true,
@@ -484,46 +521,39 @@ impl UiLoop {
                 updater.needs_update = true;
             }
 
-            // If the user has requested more than the window size we modify
-            // their requested lengths until fit. <not implemented>
-            let req_width = elems.width();
-            if req_width > self.display_info.width {
-                println!("requested gauge width {} greater than bar width {}",
-                         req_width,
-                         self.display_info.width)
+            let bar_w = match self.ui.w_of(master_id) {
+                Some(w) => w  as u32,
+                None => self.display_info.width,
+            };
+
+            widths = binders.to_widths(&self.ui, widths);
+            let widgets_w = widths.iter().fold(0, |sum, w| sum + w);
+
+            let mut spacer_w = 0;
+            if widgets_w < bar_w {
+                spacer_w = bar_w - widgets_w;
+            } else {
+                // not implemented - we need to start chopping down size
+                // of widgets.
             }
 
-            // Increase the spacer width to take up remaining space
-            // if we have additional room to fill.
-            let rem_width = self.display_info.width- req_width;
-            if rem_width > 0 {
-                for elem in &mut elems {
-                    if let &mut Elem::Spacer(ref mut spacer) = elem {
-                        spacer.width = rem_width;
-                        break;
-                    }
-                }
+            let mut splits = Vec::with_capacity(binders.len() + 1); // + spacer
+
+            for (&w, &Binder{id, ..}) in widths.iter().zip(binders) {
+                splits.push((id, Canvas::new().length(w as f64)));
             }
 
-            let mut splits = Vec::with_capacity(elems.len());
-            for elem in elems.iter() {
-                let (width, id) = match elem {
-                    &Elem::Gauge(Gauge { width, id, .. }) => (width, id),
-                    &Elem::Spacer(Spacer { width, id }) => (width, id),
-                };
-
-                splits.push((id, Canvas::new().length(width as f64)));
-            }
+            splits.insert(
+                spacer_i, (spacer_id, Canvas::new().length(spacer_w as f64))
+            );
 
             {
                 let mut ui = &mut self.ui.set_widgets();
                 Canvas::new().flow_right(&splits).set(master_id, ui);
 
                 // Unlock state so all binder functions may mutate.
-                for elem in elems.iter() {
-                    if let &Elem::Gauge(Gauge { id, ref bind, .. }) = elem {
-                        bind(id, ui, &mut updater);
-                    }
+                for &Binder{id, ref bind, ..}  in binders.iter() {
+                    bind(id, ui, &mut updater);
                 }
             }
 

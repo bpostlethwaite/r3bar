@@ -17,6 +17,7 @@ pub const RESERVED: u32 = 20;
 pub const REPLY: u32 = 21;
 pub const UNPARK: u32 = 22;
 pub const WEBPACK: u32 = 23;
+pub const TICKER: u32 = 24;
 
 pub trait R3Funcs {
     fn send_i3_message(&mut self, u32, &str) -> io::Result<()>;

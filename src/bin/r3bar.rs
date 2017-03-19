@@ -167,6 +167,7 @@ struct State {
     webpack: WebpackInfo,
     wifi: r3bar::sensors::wifi::WifiStatus,
     diskusage: String,
+    ticker: String,
 }
 
 struct Store {
@@ -278,6 +279,10 @@ impl Store {
                 state.diskusage = usage;
             }
 
+            Message::Ticker(ticker) => {
+                state.ticker = ticker;
+            }
+
             Message::Error(e) => println!("Msg Error: {}", e),
 
             Message::Exit(code) => std::process::exit(code),
@@ -373,7 +378,8 @@ fn main() {
             percent: 0.,
             icon: VolumeIcon::None,
         },
-        diskusage: "".to_owned()
+        diskusage: "".to_owned(),
+        ticker: "".to_owned(),
     }));
 
 
@@ -437,6 +443,7 @@ fn main() {
         let redkitt;
         let volume_widget;
         let diskusage_widget;
+        let ticker_widget;
         {
             let ui = &mut ui_context.ui;
 
@@ -445,12 +452,14 @@ fn main() {
             ui.theme.label_color = BASE0;
             ui.theme.padding = conrod::position::Padding::none();
             ui.theme.border_color = BASE02;
+            ui.theme.border_width = 0.;
             ui.theme.font_size_medium = 14;
 
             // set up gauges to display sensor data
             time_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
             battery_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
             wifi_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
+            ticker_widget = gauges::icon_text::IconText::new(ui.widget_id_generator());
             workspace_widget = gauges::button_row::ButtonRow::new(
                 30, BASE03, MAGENTA, ui.widget_id_generator()
             );
@@ -460,11 +469,11 @@ fn main() {
         }
 
         // TIME
+        let dwidth = bar::DEFAULT_GAUGE_WIDTH;
         {
             let state = state.clone();
-
-            ui_context.bind_right(
-                bar::DEFAULT_GAUGE_WIDTH + 10,
+            ui_context.bind(
+                r3bar::Layout::new(),
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
@@ -480,9 +489,8 @@ fn main() {
         // BATTERY
         {
             let state = state.clone();
-
-            ui_context.bind_right(
-                bar::DEFAULT_GAUGE_WIDTH / 2,
+            ui_context.bind(
+                r3bar::Layout::new(),
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
@@ -499,8 +507,8 @@ fn main() {
         {
             let state = state.clone();
 
-            ui_context.bind_right(
-                bar::DEFAULT_GAUGE_WIDTH,
+            ui_context.bind(
+                r3bar::Layout::new(),
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
@@ -516,8 +524,8 @@ fn main() {
         {
             let state = state.clone();
 
-            ui_context.bind_right(
-                bar::DEFAULT_GAUGE_WIDTH / 2,
+            ui_context.bind(
+                r3bar::Layout::new(),
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
@@ -533,17 +541,23 @@ fn main() {
         {
             let state = state.clone();
 
-            ui_context.bind_right(
-                bar::DEFAULT_GAUGE_WIDTH,
+            ui_context.bind(
+                r3bar::Layout::new(),
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
                     let ssid = state.wifi.ssid.clone()
-                        .unwrap_or("unconnected".to_string());
-                    let signal_quality = state.wifi.signal.map(dbm_to_percent)
-                        .unwrap_or(0.);
+                        .unwrap_or("unconnected".to_owned());
 
-                    let wifi_line = format!("{}  {}%", ssid, signal_quality);
+                    let sigq = state.wifi.signal.map(dbm_to_percent)
+                        .map(|p| format!(" {}%", p))
+                        .unwrap_or("".to_owned());
+
+                    let ip = state.wifi.ip.clone()
+                        .map(|s| format!(" - {}",  s))
+                        .unwrap_or("".to_owned());
+
+                    let wifi_line = format!("{}{}{}", ssid, sigq, ip);
 
                     wifi_widget.render(icon_text::Opts{
                         maybe_icon: None,
@@ -555,8 +569,8 @@ fn main() {
         // WEBPACK SENSOR
         {
             let state = state.clone();
-            ui_context.bind_right(
-                bar::DEFAULT_GAUGE_WIDTH,
+            ui_context.bind(
+                r3bar::Layout::new().with_minwidth(Some(dwidth)),
                 move |slot_id, mut ui_widgets, mut updater| {
 
                     let state = state.lock().unwrap();
@@ -579,12 +593,33 @@ fn main() {
                 });
         }
 
+        // WIFI
+        {
+            let state = state.clone();
+
+            ui_context.bind(
+                r3bar::Layout::new().with_minwidth(Some(dwidth)),
+                move |slot_id, mut ui_widgets, _| {
+
+                    let state = state.lock().unwrap();
+                    let ticker = state.ticker.clone();
+
+                    ticker_widget.render(icon_text::Opts{
+                        maybe_icon: None,
+                        maybe_text: Some(&ticker),
+                    }, slot_id, ui_widgets);
+                });
+        }
+
+
         // I3 WORKSPACES
         {
             let state = state.clone();
 
-            ui_context.bind_left(
-                bar::DEFAULT_GAUGE_WIDTH + bar::DEFAULT_GAUGE_WIDTH / 2,
+            ui_context.bind(
+                r3bar::Layout::new()
+                    .with_minwidth(Some(dwidth + dwidth / 2))
+                    .with_orientation(r3bar::Orientation::Left),
                 move |slot_id, mut ui_widgets, _| {
 
                     let state = state.lock().unwrap();
