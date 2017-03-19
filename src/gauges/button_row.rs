@@ -1,5 +1,5 @@
 use conrod::position::Place;
-use conrod::{self, color, widget, Colorable, Color, Positionable, Sizeable, Labelable, Widget};
+use conrod::{self, color, widget, Borderable, Colorable, Color, Positionable, Sizeable, Labelable, Widget};
 
 pub struct ButtonRow {
     ids: Vec<conrod::widget::Id>,
@@ -40,6 +40,8 @@ impl ButtonRow {
         let basic_btn = || {
             widget::Button::new()
                 .parent(bar_id)
+                .border(1.0)
+                .border_color(self.button_label_color)
                 .label_color(self.button_label_color)
                 .w(self.height as f64)
                 .h(self.height as f64)
@@ -73,8 +75,8 @@ impl ButtonRow {
                 .label(&title)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
-                clicked_button = Some(i as i64);
-            }
+                    clicked_button = Some(i as i64);
+                }
         }
 
         widget::Text::new(label)

@@ -18,6 +18,7 @@ pub enum Message {
     Webpack(WebpackInfo),
     Wifi(WifiStatus),
     Workspaces(Vec<Workspace>),
+    Ticker(String),
 }
 
 #[derive(Debug)]

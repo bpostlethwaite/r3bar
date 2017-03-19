@@ -20,8 +20,6 @@ pub struct IconText {
     pub icon_id: Id,
 }
 
-const LEFT_PAD: f64 = 8.0;
-
 impl IconText {
     pub fn new(mut id_generator: widget::id::Generator) -> Self {
         IconText{
@@ -35,19 +33,22 @@ impl IconText {
         if let Some(icon) = opts.maybe_icon {
             widget::Image::new(icon.id)
                 .w_h(icon.w, icon.h)
-                .x_place_on(bar_id, Place::Start(Some(LEFT_PAD)))
+                .x_place_on(bar_id, Place::Start(None))
+                .place_on_kid_area(true)
                 .set(self.icon_id, &mut ui_widgets);
 
             if let Some(text) = opts.maybe_text {
                 widget::Text::new(text)
                     .parent(bar_id)
-                    .x_relative(icon.w + LEFT_PAD)
+                    .place_on_kid_area(true)
+                    .x_relative(icon.w + 4.0)
                     .set(self.text_id, &mut ui_widgets);
             }
 
         } else if let Some(text) = opts.maybe_text {
             widget::Text::new(text)
-                .x_place_on(bar_id, Place::Start(Some(LEFT_PAD)))
+                .x_place_on(bar_id, Place::Start(None))
+                .place_on_kid_area(true)
                 .set(self.text_id, &mut ui_widgets);
         }
     }
