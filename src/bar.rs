@@ -28,53 +28,65 @@ struct Binder {
     id: Id,
 }
 
-trait BinderList {
-    fn to_widths(&self, &conrod::Ui, Vec<u32>) -> Vec<u32>;
+struct BinderCon<'a > {
+    width: u32,
+    binder: &'a Binder,
 }
 
-impl <'a> BinderList for &'a Vec<Binder> {
-    fn to_widths(&self, ui: &conrod::Ui, prev: Vec<u32>) -> Vec<u32> {
-        self.iter().zip(prev)
-            .map(|(&Binder { ref layout, id, .. }, pw)| {
-                let mut w = match layout.width {
-                    Some(w) => w,
-                    None => {
+trait BinderList {
+    fn update_widths(&mut self, &conrod::Ui);
+    fn total_width(& self) -> u32;
+}
 
-                        // if a width isn't set get the width from node contents
-                        let bbox = ui.kids_bounding_box(id);
+impl <'a> BinderList for Vec<BinderCon<'a>> {
 
-                        // TODO also consider effects of padding & margins?
-                        match bbox.map(|rect| rect.x.len()) {
-                            Some(w) => w as u32,
-                            None => DEFAULT_GAUGE_WIDTH,
-                        }
-                    }
-                };
+    fn total_width(&self) -> u32 {
+        self.iter().fold(0, |sum, c| sum + c.width)
+    }
 
-                if let Some(min_w) = layout.minwidth {
-                    if w < min_w {
-                        w = min_w;
-                    }
-                }
+    fn update_widths(&mut self, ui: &conrod::Ui) {
+        for b in self.iter_mut() {
+            let &mut BinderCon{width: pw, binder: &Binder{ref layout, id, ..}} = b;
 
-                if let Some(max_w) = layout.maxwidth {
-                    if w > max_w {
-                        w = max_w;
+            let mut w = match layout.width {
+                Some(w) => w,
+                None => {
+
+                    // if a width isn't set get the width from node contents
+                    let bbox = ui.kids_bounding_box(id);
+
+                    // TODO also consider effects of padding & margins?
+                    match bbox.map(|rect| rect.x.len()) {
+                        Some(w) => w as u32,
+                        None => DEFAULT_GAUGE_WIDTH,
                     }
                 }
+            };
 
-                // If the difference between values is less than or equal to the
-                // smoothing delta keep the greater of the values.
-                if let Some(dw) = layout.smoothwidth {
-                    let diff = w as i32 - pw as i32;
-                    if diff.abs() as u32 <= dw {
-                        w = std::cmp::max(w, pw);
-                    }
+            if let Some(min_w) = layout.minwidth {
+                if w < min_w {
+                    w = min_w;
                 }
+            }
 
-                return w;
+            if let Some(max_w) = layout.maxwidth {
+                if w > max_w {
+                    w = max_w;
+                }
+            }
 
-            }).collect::<Vec<u32>>()
+            // If the difference between values is less than or equal to the
+            // smoothing delta keep the greater of the values.
+            if let Some(dw) = layout.smoothwidth {
+                let diff = w as i32 - pw as i32;
+                if diff.abs() as u32 <= dw {
+                    w = std::cmp::max(w, pw);
+                }
+            }
+
+            // set the new width;
+            b.width = w;
+        }
     }
 }
 
@@ -295,6 +307,7 @@ impl DisplayLoop {
 pub struct UpdateConfig {
     needs_update: bool,
     last_update: std::time::Instant,
+    change_width: Option<i32>,
 }
 
 impl UpdateConfig {
@@ -434,6 +447,11 @@ impl UiLoop {
             master_id = generator.next();
             spacer_id = generator.next();
 
+            // insert a seperator between each widget and sort widgets so that
+            // Lefts grow inward and Rights grow inward. There are no seperators
+            // on the ends and there is a double seperator in the middle where the
+            // spacer will be inserted. variable left_i && spacer_i points here
+            // [l1 s l2 s s r2 s r1]
             for b in self.binders {
                 match b.layout.orientation {
                     super::Orientation::Left => {
@@ -455,18 +473,15 @@ impl UiLoop {
             }
         }
 
-        let binders = &binders;
+        let mut conts = binders.iter()
+            .map(|b| BinderCon{width: 0, binder: b})
+            .collect::<Vec<BinderCon>>();
+
         let spacer_i = left_i;
-
-        let mut widths: Vec<u32> = Vec::with_capacity(binders.len() as usize);
-        for _ in 0..binders.len() {
-            widths.push(0);
-        }
-
-        widths = binders.to_widths(&self.ui, widths);
 
         let mut updater = UpdateConfig{
             needs_update: true,
+            change_width: None,
             last_update: std::time::Instant::now(),
         };
 
@@ -511,12 +526,12 @@ impl UiLoop {
                 None => self.display_info.width,
             };
 
-            widths = binders.to_widths(&self.ui, widths);
-            let widgets_w = widths.iter().fold(0, |sum, w| sum + w);
+            conts.update_widths(&self.ui);
+            let totalw = conts.total_width();
 
             let mut spacer_w = 0;
-            if widgets_w < bar_w {
-                spacer_w = bar_w - widgets_w;
+            if totalw < bar_w {
+                spacer_w = bar_w - totalw;
             } else {
                 // not implemented - we need to start chopping down size
                 // of widgets.
@@ -524,7 +539,7 @@ impl UiLoop {
 
             let mut splits = Vec::with_capacity(binders.len() + 1); // + spacer
 
-            for (&w, &Binder{id, ..}) in widths.iter().zip(binders) {
+            for &BinderCon{width: w, binder: &Binder{id, ..}} in conts.iter() {
                 splits.push((id, Canvas::new().length(w as f64)));
             }
 
@@ -536,9 +551,17 @@ impl UiLoop {
                 let mut ui = &mut self.ui.set_widgets();
                 Canvas::new().flow_right(&splits).set(master_id, ui);
 
-                // Unlock state so all binder functions may mutate.
-                for &Binder{id, ref bind, ..}  in binders.iter() {
-                    bind(id, ui, &mut updater);
+                for c in conts.iter_mut() {
+                    let &mut BinderCon{binder: mut b, ..} = c;
+                    let &mut &Binder{ref bind, ref layout, id} = &mut b;
+                    (b.bind)(id, ui, &mut updater);
+
+                    if let Some(dw) = updater.change_width {
+                        if let Some(w) = b.layout.width {
+                            let neww = (w as i32 + dw) as u32;
+                            b.layout = super::Layout::new();
+                        }
+                    }
                 }
             }
 
