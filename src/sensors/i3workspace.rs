@@ -32,7 +32,6 @@ impl I3Workspace {
 
         Ok(())
     }
-
 }
 
 impl Sensor for I3Workspace {

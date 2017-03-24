@@ -156,7 +156,7 @@ struct Volume {
 
 struct I3 {
     mode: String,
-    workspaces: HashMap<String, Vec<(String, color::Color)>>,
+    workspaces: HashMap<String, Vec<(String, String, color::Color)>>,
 }
 
 struct State {
@@ -212,7 +212,7 @@ impl Store {
             }
 
             Message::Workspaces(workspaces) => {
-                let mut monitors: HashMap<String, Vec<(String, color::Color)>> = HashMap::new();
+                let mut monitors: HashMap<String, Vec<(String, String, color::Color)>> = HashMap::new();
 
                 for workspace in workspaces {
                     let mut color;
@@ -230,7 +230,12 @@ impl Store {
                         None => Vec::new(),
                     };
 
-                    work_vec.push((workspace.name.clone(), color));
+                    work_vec.push((
+                        workspace.name.clone(),
+                        workspace.name.clone(),
+                        color)
+                    );
+
                     monitors.insert(workspace.output, work_vec);
                 }
 
@@ -634,7 +639,6 @@ fn main() {
                             &state.i3.mode,
                             slot_id,
                             ui_widgets);
-
 
                     if let Some(workspace_name) = maybe_clicked {
                         let r = i3workspace::I3Workspace::change_workspace(

@@ -24,21 +24,17 @@ pub const DEFAULT_SEP_WIDTH: u32 = 24;
 
 struct Binder {
     bind: Box<Fn(Id, &mut UiCell, &mut UpdateConfig)>,
-    layout: super::Layout,
     id: Id,
-}
-
-struct BinderCon<'a > {
     width: u32,
-    binder: &'a Binder,
+    layout: super::Layout,
 }
 
 trait BinderList {
     fn update_widths(&mut self, &conrod::Ui);
-    fn total_width(& self) -> u32;
+    fn total_width(&self) -> u32;
 }
 
-impl <'a> BinderList for Vec<BinderCon<'a>> {
+impl BinderList for Vec<Binder> {
 
     fn total_width(&self) -> u32 {
         self.iter().fold(0, |sum, c| sum + c.width)
@@ -46,7 +42,7 @@ impl <'a> BinderList for Vec<BinderCon<'a>> {
 
     fn update_widths(&mut self, ui: &conrod::Ui) {
         for b in self.iter_mut() {
-            let &mut BinderCon{width: pw, binder: &Binder{ref layout, id, ..}} = b;
+            let &mut Binder{width: prevw, layout, id, ..} = b;
 
             let mut w = match layout.width {
                 Some(w) => w,
@@ -78,9 +74,9 @@ impl <'a> BinderList for Vec<BinderCon<'a>> {
             // If the difference between values is less than or equal to the
             // smoothing delta keep the greater of the values.
             if let Some(dw) = layout.smoothwidth {
-                let diff = w as i32 - pw as i32;
+                let diff = w as i32 - prevw as i32;
                 if diff.abs() as u32 <= dw {
-                    w = std::cmp::max(w, pw);
+                    w = std::cmp::max(w, prevw);
                 }
             }
 
@@ -319,7 +315,7 @@ impl DisplayLoop {
 pub struct UpdateConfig {
     needs_update: bool,
     last_update: std::time::Instant,
-    change_width: Option<i32>,
+    width_update: Option<i32>,
 }
 
 impl UpdateConfig {
@@ -330,6 +326,10 @@ impl UpdateConfig {
 
     pub fn update(&mut self) {
         self.needs_update = true;
+    }
+
+    pub fn apply_width(&mut self, width: Option<i32>) {
+        self.width_update = width;
     }
 
     fn updated(&mut self) {
@@ -417,10 +417,11 @@ impl UiLoop {
     {
         let id = self.gen_id();
 
-        self.binders.push(Binder {
+        self.binders.push(Binder{
             bind: Box::new(bind),
-            layout: layout,
             id: id,
+            width: 0,
+            layout: layout,
         });
 
         self
@@ -434,8 +435,9 @@ impl UiLoop {
                     .middle_of(slot_id)
                     .set(sep_id, ui_widgets);
             }),
-            layout: super::Layout::new().with_width(Some(DEFAULT_SEP_WIDTH)),
             id: slot_id,
+            width: 0,
+            layout: super::Layout::new().with_width(Some(DEFAULT_SEP_WIDTH)),
         }
     }
 
@@ -457,10 +459,10 @@ impl UiLoop {
         let mut binders = Vec::new();
         let mut left_i = 0;
         {
-            let mut generator = self.ui.widget_id_generator();
+            let mut gid = self.ui.widget_id_generator();
 
-            master_id = generator.next();
-            spacer_id = generator.next();
+            master_id = gid.next();
+            spacer_id = gid.next();
 
             // insert a seperator between each widget and sort widgets so that
             // Lefts grow inward and Rights grow inward. There are no seperators
@@ -473,14 +475,14 @@ impl UiLoop {
                         binders.insert(left_i, b);
                         binders.insert(
                             left_i + 1,
-                            UiLoop::make_sep(generator.next(), generator.next())
+                            UiLoop::make_sep(gid.next(), gid.next()),
                         );
                         left_i += 2;
                     },
                     super::Orientation::Right => {
                         binders.insert(
                             left_i,
-                            UiLoop::make_sep(generator.next(), generator.next())
+                            UiLoop::make_sep(gid.next(), gid.next()),
                         );
                         binders.insert(left_i + 1, b);
                     },
@@ -488,15 +490,11 @@ impl UiLoop {
             }
         }
 
-        let mut conts = binders.iter()
-            .map(|b| BinderCon{width: 0, binder: b})
-            .collect::<Vec<BinderCon>>();
-
         let spacer_i = left_i;
 
         let mut updater = UpdateConfig{
             needs_update: true,
-            change_width: None,
+            width_update: None,
             last_update: std::time::Instant::now(),
         };
 
@@ -541,8 +539,8 @@ impl UiLoop {
                 None => self.display_info.width,
             };
 
-            conts.update_widths(&self.ui);
-            let totalw = conts.total_width();
+            binders.update_widths(&self.ui);
+            let totalw = binders.total_width();
 
             let mut spacer_w = 0;
             if totalw < bar_w {
@@ -554,7 +552,7 @@ impl UiLoop {
 
             let mut splits = Vec::with_capacity(binders.len() + 1); // + spacer
 
-            for &BinderCon{width: w, binder: &Binder{id, ..}} in conts.iter() {
+            for &Binder{width: w, id, ..} in binders.iter() {
                 splits.push((id, Canvas::new().length(w as f64)));
             }
 
@@ -566,15 +564,14 @@ impl UiLoop {
                 let mut ui = &mut self.ui.set_widgets();
                 Canvas::new().flow_right(&splits).set(master_id, ui);
 
-                for c in conts.iter_mut() {
-                    let &mut BinderCon{binder: mut b, ..} = c;
-                    let &mut &Binder{ref bind, ref layout, id} = &mut b;
-                    (b.bind)(id, ui, &mut updater);
+                for b in binders.iter_mut() {
+                    let &mut Binder{ref bind, id, ..} = b;
+                    bind(id, ui, &mut updater);
 
-                    if let Some(dw) = updater.change_width {
+                    if let Some(dw) = updater.width_update {
                         if let Some(w) = b.layout.width {
                             let neww = (w as i32 + dw) as u32;
-                            b.layout = super::Layout::new();
+                            b.layout = b.layout.with_width(Some(neww));
                         }
                     }
                 }

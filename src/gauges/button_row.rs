@@ -9,6 +9,9 @@ pub struct ButtonRow {
     button_label_color: Color,
 }
 
+type Title = String;
+type BtnId = String;
+
 impl ButtonRow {
     pub fn new(height: u32,
                button_label_color: Color,
@@ -31,7 +34,7 @@ impl ButtonRow {
     }
 
     pub fn render(&self,
-                  buttons: Vec<(String, color::Color)>,
+                  buttons: Vec<(Title, BtnId, color::Color)>,
                   label: &str,
                   bar_id: conrod::widget::Id,
                   mut ui_widgets: &mut conrod::UiCell)
@@ -57,29 +60,26 @@ impl ButtonRow {
         let mut ids_titles = ids.iter().zip(buttons);
 
         // place the first button at the start of the block
-        if let Some((&button_id, (title, color))) = ids_titles.next() {
+        if let Some((&button_id, (title, id, color))) = ids_titles.next() {
             let btn = basic_btn();
             if btn.x_place_on(bar_id, Place::Start(None))
                 .color(color)
                 .label(&title)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
-                clicked_button = Some(title);
+                clicked_button = Some(id);
             }
         }
         // and then line subsequent buttons up relative to first button
-        for (&button_id, (title, color)) in ids_titles {
+        for (&button_id, (title, id, color)) in ids_titles {
             let btn = basic_btn();
             if btn.x_relative(self.height as f64)
                 .color(color)
                 .label(&title)
                 .set(button_id, &mut ui_widgets)
                 .was_clicked() {
-                clicked_button = Some(title);
-            }
-        }
-        if let Some(c) = clicked_button.clone() {
-            println!("Clicked button: {}", c);
+                    clicked_button = Some(id);
+                }
         }
         widget::Text::new(label)
             .x_place_on(bar_id, Place::End(Some(10.)))
