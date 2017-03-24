@@ -15,8 +15,8 @@ impl I3Workspace {
         I3Workspace{}
     }
 
-    pub fn change_workspace(workspace_number: i64) -> Result<(), BarError> {
-        let cmd = format!("workspace {}", workspace_number);
+    pub fn change_workspace(workspace_id: String) -> Result<(), BarError> {
+        let cmd = format!("workspace {}", workspace_id);
 
         let mut connection = I3Connection::connect()?;
         let outcomes = connection.command(&cmd).ok().expect("failed to send command").outcomes;
@@ -32,7 +32,6 @@ impl I3Workspace {
 
         Ok(())
     }
-
 }
 
 impl Sensor for I3Workspace {

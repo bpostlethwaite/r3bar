@@ -155,7 +155,7 @@ struct Volume {
 
 struct I3 {
     mode: String,
-    workspaces: Vec<(String, color::Color)>,
+    workspaces: Vec<(String, String, color::Color)>,
 }
 
 struct State {
@@ -222,7 +222,11 @@ impl Store {
                     if workspace.urgent {
                         color = color.complement();
                     }
-                    work_vec.push((workspace.name.clone(), color));
+                    work_vec.push((
+                        workspace.name.clone(),
+                        workspace.name.clone(),
+                        color)
+                    );
                 }
 
                 state.i3.workspaces = work_vec;
@@ -619,9 +623,8 @@ fn main() {
                             ui_widgets);
 
 
-                    if let Some(ith_btn) = maybe_clicked {
-                        let w_index = ith_btn + 1; // 1 indexed
-                        let r = i3workspace::I3Workspace::change_workspace(w_index);
+                    if let Some(btn_num) = maybe_clicked {
+                        let r = i3workspace::I3Workspace::change_workspace(btn_num);
                         if let Err(e) = r {
                                 println!("{}", e); // TODO logging
                             }
