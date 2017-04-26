@@ -1,6 +1,7 @@
 use conrod::backend::glium::glium;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Positionable, Sizeable, Widget, UiCell};
+use conrod::event::Drag;
 use error::BarError;
 use image;
 use self::glium::glutin::Event::KeyboardInput;
@@ -23,10 +24,11 @@ pub const DEFAULT_GAUGE_WIDTH: u32 = 200;
 pub const DEFAULT_SEP_WIDTH: u32 = 24;
 
 struct Binder {
-    bind: Box<Fn(Id, &mut UiCell, &mut UpdateConfig)>,
+    bind: Box<Fn(Id, &mut UiCell, UpdateConfig) -> UpdateConfig> ,
     id: Id,
     width: u32,
     layout: super::Layout,
+    update: UpdateConfig,
 }
 
 trait BinderList {
@@ -45,7 +47,10 @@ impl BinderList for Vec<Binder> {
             let &mut Binder{width: prevw, layout, id, ..} = b;
 
             let mut w = match layout.width {
-                Some(w) => w,
+                Some(w) => {
+                    println!("has width: {}", w);
+                    w
+                },
                 None => {
 
                     // if a width isn't set get the width from node contents
@@ -315,25 +320,37 @@ impl DisplayLoop {
 pub struct UpdateConfig {
     needs_update: bool,
     last_update: std::time::Instant,
-    width_update: Option<i32>,
+    width_update: Option<f64>,
 }
 
 impl UpdateConfig {
-    pub fn since_last_update(&self) -> Duration {
+
+    pub fn new() -> Self {
+        UpdateConfig{
+            needs_update: false,
+            width_update: None,
+            last_update: std::time::Instant::now(),
+        }
+    }
+
+    pub fn since_last_update(self) -> Duration {
         let now = std::time::Instant::now();
         now.duration_since(self.last_update)
     }
 
-    pub fn update(&mut self) {
+    pub fn update(mut self) -> Self {
         self.needs_update = true;
+        self
     }
 
-    pub fn apply_width(&mut self, width: Option<i32>) {
+    pub fn apply_width(mut self, width: Option<f64>) -> Self {
         self.width_update = width;
+        self
     }
 
-    fn updated(&mut self) {
+    fn updated(mut self) -> Self {
         self.last_update = std::time::Instant::now();
+        self
     }
 }
 
@@ -413,7 +430,7 @@ impl UiLoop {
     }
 
     pub fn bind<F>(&mut self, layout: super::Layout, bind: F) -> &Self
-        where F: 'static + Send + Fn(Id, &mut UiCell, &mut UpdateConfig)
+        where F: 'static + Send + Fn(Id, &mut UiCell, UpdateConfig) -> UpdateConfig
     {
         let id = self.gen_id();
 
@@ -422,6 +439,7 @@ impl UiLoop {
             id: id,
             width: 0,
             layout: layout,
+            update: UpdateConfig::new(),
         });
 
         self
@@ -429,15 +447,23 @@ impl UiLoop {
 
     fn make_sep(slot_id: Id, sep_id: Id) -> Binder {
         Binder{
-            bind: Box::new(move |slot_id, mut ui_widgets, _| {
+            bind: Box::new(move |slot_id, mut ui_widgets, mut update| {
                 Sep::new()
                     .wh_of(slot_id)
                     .middle_of(slot_id)
                     .set(sep_id, ui_widgets);
+
+                let maybe_drag = ui_widgets.widget_input(sep_id).drags().last();
+                if let Some(Drag{total_delta_xy: xy, ..}) = maybe_drag {
+                    update = update.apply_width(Some(xy[1]));
+                }
+
+                update
             }),
             id: slot_id,
             width: 0,
             layout: super::Layout::new().with_width(Some(DEFAULT_SEP_WIDTH)),
+            update: UpdateConfig::new(),
         }
     }
 
@@ -491,12 +517,7 @@ impl UiLoop {
         }
 
         let spacer_i = left_i;
-
-        let mut updater = UpdateConfig{
-            needs_update: true,
-            width_update: None,
-            last_update: std::time::Instant::now(),
-        };
+        let mut needs_update = true;
 
         'conrod: loop {
 
@@ -514,7 +535,7 @@ impl UiLoop {
             }
 
             // If there are no events pending, wait for them.
-            if events.is_empty() || !updater.needs_update {
+            if events.is_empty() || !needs_update {
                 match self.rx.recv() {
                     Ok(DispResponse::DisplayInfo(info)) => self.display_info = info,
                     Ok(DispResponse::ImageId(_)) => (),
@@ -526,12 +547,12 @@ impl UiLoop {
                 }
             }
 
-            updater.needs_update = false;
+            needs_update = false;
 
             // Input each event into the `Ui`.
             for event in events {
                 self.ui.handle_event(event);
-                updater.needs_update = true;
+                needs_update = true;
             }
 
             let bar_w = match self.ui.w_of(master_id) {
@@ -565,15 +586,29 @@ impl UiLoop {
                 Canvas::new().flow_right(&splits).set(master_id, ui);
 
                 for b in binders.iter_mut() {
-                    let &mut Binder{ref bind, id, ..} = b;
-                    bind(id, ui, &mut updater);
+                    let &mut Binder{ref bind, id, mut update, ..} = b;
+                    update = bind(id, ui, update);
 
-                    if let Some(dw) = updater.width_update {
-                        if let Some(w) = b.layout.width {
-                            let neww = (w as i32 + dw) as u32;
-                            b.layout = b.layout.with_width(Some(neww));
-                        }
+                    // if any widget needs to be updated we rerender all
+                    if update.needs_update {
+                        needs_update = true;
+                        update.needs_update = false;
                     }
+
+                    if let Some(dw) = update.width_update {
+                        println!("{}", dw);
+                        if let Some(w) = b.layout.width {
+                            let mut neww = w as f64 + dw;
+                            if neww < 0. {
+                                neww = 0.;
+                            }
+                            b.layout = b.layout.with_width(Some(neww as u32));
+                        }
+
+                        update.width_update = None;
+                    }
+
+                    b.update = update;
                 }
             }
 
@@ -588,7 +623,9 @@ impl UiLoop {
 
             }
 
-            updater.updated();
+            for &mut Binder{update, ..} in binders.iter_mut() {
+                update.updated();
+            }
         }
 
     }

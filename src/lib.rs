@@ -41,21 +41,18 @@ impl Layout {
         }
     }
 
-    pub fn with_width(self, width: Option<u32>) -> Self {
-        let mut l = self;
-        l.width = width;
-        l
+    pub fn with_width(mut self, width: Option<u32>) -> Self {
+        self.width = width;
+        self
     }
 
-    pub fn with_minwidth(self, width: Option<u32>) -> Self {
-        let mut l = self;
-        l.minwidth = width;
-        l
+    pub fn with_minwidth(mut self, width: Option<u32>) -> Self {
+        self.minwidth = width;
+        self
     }
 
-    pub fn with_orientation(self, o: Orientation) -> Self {
-        let mut l = self;
-        l.orientation = o;
-        l
+    pub fn with_orientation(mut self, o: Orientation) -> Self {
+        self.orientation = o;
+        self
     }
 }

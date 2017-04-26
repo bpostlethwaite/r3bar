@@ -68,7 +68,7 @@ impl Widget for Sep {
         self.style.clone()
     }
 
-    fn update(self, args: widget::UpdateArgs<Self>) -> Option<()> {
+    fn update<'a>(self, args: widget::UpdateArgs<Self>) -> Option<()> {
         let widget::UpdateArgs { id, state, rect, mut ui, style, .. } = args;
 
         let r_color = style.background_color(&ui.theme);
@@ -89,10 +89,7 @@ impl Widget for Sep {
             .place_on_kid_area(true)
             .set(state.line_id, ui);
 
-        let input = ui.widget_input(id);
-
-        // If the seperator was clicked, produce `Some` event.
-        input.clicks().left().next().map(|_| ())
+        None
     }
 }
 

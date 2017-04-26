@@ -479,7 +479,7 @@ fn main() {
             let state = state.clone();
             ui_context.bind(
                 r3bar::Layout::new(),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
 
@@ -488,6 +488,7 @@ fn main() {
                         maybe_text: Some(&state.time),
                     }, slot_id, ui_widgets);
 
+                    update
                 });
         }
 
@@ -496,7 +497,7 @@ fn main() {
             let state = state.clone();
             ui_context.bind(
                 r3bar::Layout::new(),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
                     let battery_icon = state.battery.icon.to_struct(&battery_icons);
@@ -505,6 +506,8 @@ fn main() {
                         maybe_icon: Some(battery_icon),
                         maybe_text: Some(&format!("{}%", state.battery.capacity)),
                     }, slot_id, ui_widgets);
+
+                    update
                 });
         }
 
@@ -514,7 +517,7 @@ fn main() {
 
             ui_context.bind(
                 r3bar::Layout::new(),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
 
@@ -522,6 +525,8 @@ fn main() {
                         maybe_icon: None,
                         maybe_text: Some(&state.diskusage),
                     }, slot_id, ui_widgets);
+
+                    update
                 });
         }
 
@@ -531,7 +536,7 @@ fn main() {
 
             ui_context.bind(
                 r3bar::Layout::new(),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
                     let volume_icon = state.volume.icon.to_struct(&volume_icons);
@@ -539,6 +544,8 @@ fn main() {
                         maybe_icon: Some(volume_icon),
                         maybe_text: Some(&format!("{}%", state.volume.percent)),
                     }, slot_id, ui_widgets);
+
+                    update
                 });
         }
 
@@ -548,7 +555,7 @@ fn main() {
 
             ui_context.bind(
                 r3bar::Layout::new(),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
                     let ssid = state.wifi.ssid.clone()
@@ -568,6 +575,8 @@ fn main() {
                         maybe_icon: None,
                         maybe_text: Some(&wifi_line),
                     }, slot_id, ui_widgets);
+
+                    update
                 });
         }
 
@@ -576,13 +585,12 @@ fn main() {
             let state = state.clone();
             ui_context.bind(
                 r3bar::Layout::new().with_minwidth(Some(dwidth)),
-                move |slot_id, mut ui_widgets, mut updater| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
                     let delta = match state.webpack {
                         WebpackInfo::Compile => {
-                            updater.update();
-                            Some(updater.since_last_update())
+                            Some(update.since_last_update())
                         },
                         _ => None,
                     };
@@ -595,6 +603,8 @@ fn main() {
                             println!("{}", e); // logging
                         }
                     }
+
+                    update
                 });
         }
 
@@ -604,7 +614,7 @@ fn main() {
 
             ui_context.bind(
                 r3bar::Layout::new().with_minwidth(Some(dwidth)),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
                     let ticker = state.ticker.clone();
@@ -613,6 +623,8 @@ fn main() {
                         maybe_icon: None,
                         maybe_text: Some(&ticker),
                     }, slot_id, ui_widgets);
+
+                    update
                 });
         }
 
@@ -625,7 +637,7 @@ fn main() {
                 r3bar::Layout::new()
                     .with_minwidth(Some(dwidth + dwidth / 2))
                     .with_orientation(r3bar::Orientation::Left),
-                move |slot_id, mut ui_widgets, _| {
+                move |slot_id, mut ui_widgets, update| {
 
                     let state = state.lock().unwrap();
                     let workspaces = match state.i3.workspaces.get(&output) {
@@ -648,6 +660,8 @@ fn main() {
                             println!("{}", e); // TODO logging
                         }
                     }
+
+                    update
                 });
         }
     }));
