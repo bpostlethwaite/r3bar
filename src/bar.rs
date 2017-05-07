@@ -1,7 +1,6 @@
 use conrod::backend::glium::glium;
 use conrod::widget::{Id, Canvas};
 use conrod::{self, Widget, UiCell};
-use display::display;
 use error::BarError;
 use image;
 use self::glium::glutin::Event::KeyboardInput;
@@ -9,7 +8,6 @@ use self::glium::glutin::VirtualKeyCode as KeyCode;
 use self::glium::{DisplayBuild, Surface};
 use std::marker::{Send, Sync};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::{Arc};
 use std::time::Duration;
@@ -124,7 +122,7 @@ pub enum DispResponse {
 
 
 struct DisplayLoop {
-    display: display::R3Display,
+    display: glium::backend::glutin_backend::GlutinFacade,
     image_map: conrod::image::Map<glium::texture::SrgbTexture2d>,
 }
 
@@ -153,10 +151,9 @@ impl DisplayLoop {
             _ => return
         };
 
-        let window = builder.build().unwrap();
-        let display = display::R3Display::new(Rc::new(window));
+        let window = builder.build_glium().unwrap();
         let dloop = &mut DisplayLoop{
-            display: display,
+            display: window,
             image_map: conrod::image::Map::new(),
         };
 
@@ -180,7 +177,7 @@ impl DisplayLoop {
 
     fn display_info(&self) -> DisplayInfo {
         let (width, height) = self.window_dims();
-        let proxy = self.display.get_window().create_window_proxy();
+        let proxy =  self.display.get_window().unwrap().create_window_proxy();
 
         DisplayInfo{
             proxy: proxy,
@@ -223,8 +220,9 @@ impl DisplayLoop {
                 // Use the `winit` backend feature to convert the winit event
                 // to a conrod one.
                 if let Some(event) = conrod::backend::winit::convert(
-                    event.clone(), self.display.get_window()
+                    event.clone(), &self.display
                 ) {
+                    println!("got event {:?}", event);
                     tx.send(DispResponse::Event(event)).unwrap();
                 }
 

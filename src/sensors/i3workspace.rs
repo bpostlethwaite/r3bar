@@ -17,7 +17,7 @@ impl I3Workspace {
 
     pub fn change_workspace(workspace: String, output: String) -> Result<(), BarError> {
         let cmd = format!("workspace {}, move workspace to {}", workspace, output);
-
+        println!("running {}", cmd);
         let mut connection = I3Connection::connect()?;
         let outcomes = connection.command(&cmd).ok().expect("failed to send command").outcomes;
 

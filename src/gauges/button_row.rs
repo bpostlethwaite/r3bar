@@ -76,7 +76,9 @@ impl ButtonRow {
                 clicked_button = Some(title);
             }
         }
-
+        if let Some(c) = clicked_button.clone() {
+            println!("Clicked button: {}", c);
+        }
         widget::Text::new(label)
             .x_place_on(bar_id, Place::End(Some(10.)))
             .color(self.label_color)
