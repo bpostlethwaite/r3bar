@@ -72,7 +72,7 @@ impl Bar {
 
         let mut ui_txs = Vec::new();
 
-        let outputs = vec!["eDP1", "HDMI2"];
+        let outputs = vec!["eDP1"];
         for output in outputs {
             let app_tx = app_tx.clone();
 
@@ -222,7 +222,6 @@ impl DisplayLoop {
                 if let Some(event) = conrod::backend::winit::convert(
                     event.clone(), &self.display
                 ) {
-                    println!("got event {:?}", event);
                     tx.send(DispResponse::Event(event)).unwrap();
                 }
 
