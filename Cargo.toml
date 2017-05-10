@@ -4,22 +4,22 @@ version = "0.1.2"
 authors = ["bpostlethwaite <post.ben.here@gmail.com>"]
 
 [profile.release]
-debug = true
+debug = false
 
 [dependencies.conrod]
-version = "0.51.1"
+version = "0.52.0"
 features = ['glium', 'winit']
 
 [dependencies]
-byteorder = "0.5.3"
-chrono = "0.2"
+byteorder = "1.0.0"
+chrono = "0.3.1"
 i3ipc = "0.4.2"
-regex = "0.1"
-serde = "0.8.12"
-serde_json = "0.8.2"
+regex = "0.2.1"
+serde = "1.0.2"
+serde_json = "1.0.2"
 unix_socket = "0.5.0"
-getopts = "0.2"
-image = "0.12.0"
+getopts = "0.2.14"
+image = "0.13.0"
 
 [replace]
 "winit:0.5.11" = { git = "https://github.com/bpostlethwaite/winit", branch = "x11-statusbar-patch"}

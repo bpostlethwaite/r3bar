@@ -7,3 +7,4 @@
 Cargo.lock
 perf.data
 flame.svg
+perf.stat.data

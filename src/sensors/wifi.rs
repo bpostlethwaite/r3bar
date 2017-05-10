@@ -4,7 +4,7 @@
 //
 use message::Message;
 use sensors::{Sensor, SensorResult};
-use regex::Regex;
+use regex::{self, Regex};
 use std::error::Error;
 use std::process::Command;
 use std::str::from_utf8;
@@ -38,8 +38,8 @@ impl ConfigureWifi {
 
         // attempt to find the correct interface
         let device = re.captures(from_utf8(&output.stdout)?)
-            .and_then(|captures| captures.at(1))
-            .map_or("wlan0", |c| c);
+            .and_then(|captures| captures.get(1))
+            .map_or("wlan0", |c| c.as_str());
 
         Ok(ConfigureWifi {
             bitrate_degraded: 53.,
@@ -161,22 +161,23 @@ fn get_wifi_status(device: String,
     }
 
     let iw_out = from_utf8(&output.stdout)?;
-    let str2f64 = |rate_str: &str| rate_str.parse::<f64>().ok();
+    let str2f64 = |m: regex::Match| m.as_str().parse::<f64>().ok();
 
     let re = Regex::new(r"tx bitrate: ([^\s]+) ([^\s]+)")?;
     let bitrate = re.captures(iw_out)
 
     // group1 contains the bitrate
-        .and_then(|captures| captures.at(1)
+        .and_then(|captures| captures.get(1)
 
                   // and should be a number
                   .and_then(&str2f64)
 
                   // group2 contains the units
-                  .and_then( |rate| captures.at(2)
+                  .and_then( |rate| captures.get(2)
 
                               // if Gbits translate to Mbits
-                              .map( |unit| {
+                              .map( |m| {
+                                  let unit = m.as_str();
                                   if unit == "Gbit/s" {
                                       (rate * 1000., unit)
                                   } else {
@@ -186,13 +187,13 @@ fn get_wifi_status(device: String,
 
     let re = Regex::new(r"signal: ([-0-9]+)")?;
     let signal_dbm = re.captures(iw_out)
-        .and_then(|captures| captures.at(1))
+        .and_then(|captures| captures.get(1))
         .and_then(&str2f64);
 
     let re = Regex::new(r"SSID: (.+)")?;
     let ssid = re.captures(iw_out)
-        .and_then(|captures| captures.at(1))
-        .map(|ssid| ssid.to_string());
+        .and_then(|captures| captures.get(1))
+        .map(|m| m.as_str().to_owned());
 
     let mut ip = None;
     if do_ip {
@@ -209,8 +210,8 @@ fn get_wifi_status(device: String,
 
         let re = Regex::new(r"inet\s+([0-9.]+)")?;
         ip = re.captures(iw_out)
-            .and_then(|captures| captures.at(1))
-            .map(|ip| ip.to_string());
+            .and_then(|captures| captures.get(1))
+            .map(|m| m.as_str().to_owned());
     }
 
     // reset _max_bitrate if we have changed network

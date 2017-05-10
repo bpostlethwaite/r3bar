@@ -47,10 +47,7 @@ impl BinderList for Vec<Binder> {
             let &mut Binder{width: prevw, layout, id, ..} = b;
 
             let mut w = match layout.width {
-                Some(w) => {
-                    println!("has width: {}", w);
-                    w
-                },
+                Some(w) => w,
                 None => {
 
                     // if a width isn't set get the width from node contents
@@ -596,7 +593,6 @@ impl UiLoop {
                     }
 
                     if let Some(dw) = update.width_update {
-                        println!("{}", dw);
                         if let Some(w) = b.layout.width {
                             let mut neww = w as f64 + dw;
                             if neww < 0. {
