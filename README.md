@@ -10,8 +10,8 @@
 - [x] Image / icon handling
 - [x] vol command writes back to r3bar socket for instant update
 - [ ] volume sensor recognizes mute
-- [ ] "fit to contents" widget sizing
-- [ ] adjustable widget sizing (draggable)
+- [x] "fit to contents" widget sizing
+- [x] adjustable widget sizing (draggable)
 - [ ] Popup window (first use for debugging)
 - [ ] Implement system tray
 - [ ] Implement Anybar spec
